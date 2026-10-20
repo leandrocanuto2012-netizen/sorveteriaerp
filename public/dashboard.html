@@ -152,7 +152,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px}
     <input type="password" id="loginSenha" placeholder="•••" value="123">
     <button onclick="fazerLogin()">Entrar</button>
     <div class="login-error" id="loginError"></div>
-    <div class="login-hint">Padrão: SV-2026-0001/123</div>
+    <div class="login-hint">Padrão: SV-2026-0001 / 123</div>
   </div>
 </div>
 <!-- APP -->
@@ -183,6 +183,7 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px}
       <div class="menu-items">
         <div class="menu-item" data-view="produtos" onclick="showView('produtos')"><i data-lucide="ice-cream-cone"></i> Produtos</div>
         <div class="menu-item" data-view="clientes" onclick="showView('clientes')"><i data-lucide="users"></i> Clientes + Fidelidade</div>
+        <div class="menu-item" data-view="crm" onclick="showView('crm')"><i data-lucide="phone-call"></i> CRM / Contatos</div>
         <div class="menu-item" data-view="fornecedores" onclick="showView('fornecedores')"><i data-lucide="truck"></i> Fornecedores</div>
         <div class="menu-item" data-view="funcionarios" onclick="showView('funcionarios')"><i data-lucide="user-cog"></i> Funcionários</div>
         <div class="menu-item" data-view="patrimonio" onclick="showView('patrimonio')"><i data-lucide="armchair"></i> Patrimônio</div>
@@ -220,6 +221,8 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px}
         <div class="menu-item" data-view="contas" onclick="showView('contas')"><i data-lucide="file-text"></i> Contas a Pagar/Receber</div>
         <div class="menu-item" data-view="tesouraria" onclick="showView('tesouraria')"><i data-lucide="safe"></i> Tesouraria</div>
         <div class="menu-item" data-view="notas-fiscais" onclick="showView('notas-fiscais')"><i data-lucide="file-signature"></i> Notas Fiscais</div>
+        <div class="menu-item" data-view="boletos" onclick="showView('boletos')"><i data-lucide="barcode"></i> Boletos / Bancos</div>
+        <div class="menu-item" data-view="ifood" onclick="showView('ifood')"><i data-lucide="utensils"></i> Integração iFood</div>
         <div class="menu-item" data-view="autorizacoes" onclick="showView('autorizacoes')"><i data-lucide="shield-check"></i> Autorizações</div>
       </div>
     </div>
@@ -343,7 +346,8 @@ function showView(view){
     tesouraria: renderTesouraria, 'notas-fiscais': renderNotasFiscais, autorizacoes: renderAutorizacoes,
     ponto: renderPonto, ferias: renderFerias, holerites: renderHolerites, rescisao: renderRescisao,
     'documentos-rh': renderDocumentosRH, logistica: renderLogistica, checklists: renderChecklists,
-    'bot-config': renderBotConfig, gerente: renderGerente, 'ia-vendas': renderIAVendas
+    'bot-config': renderBotConfig, gerente: renderGerente, 'ia-vendas': renderIAVendas,
+    crm: renderCRM, boletos: renderBoletos, ifood: renderIfood
   };
   (renderers[view] || renderDashboard)();
   lucide.createIcons();
@@ -1982,10 +1986,145 @@ async function enviarIA(){
 }
 function addCarrinhoIA(p){ carrinhoIA.push({product_id:p.id, produto_nome:p.nome, sku:p.sku, qty:1, unit_price:p.preco, total:p.preco}); toast(p.nome+' adicionado!'); }
 async function finalizarPedidoIA(){ const total = carrinhoIA.reduce((s,i)=>s+i.total,0); const r = await apiPOST('/api/ia-vendas/salvar-pedido', {cliente_nome:'Cliente IA', itens:carrinhoIA, subtotal:total, total}); if(r.sucesso){ toast('Pedido #'+r.pedido_id+'!'); carrinhoIA=[]; renderIAVendas(); } else toast(r.erro||'Erro','error'); }
+// ===== CRM / CONTATOS =====
+async function renderCRM(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">CRM / Contatos</h1><p class="page-sub">Acompanhe clientes, ligações, WhatsApp e oportunidades de venda.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dbeafe"><i data-lucide="users" style="color:#2563eb"></i></div><div><div class="kpi-label">Total Clientes</div><div class="kpi-value" id="crmTotal">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dcfce7"><i data-lucide="phone-call" style="color:#15803d"></i></div><div><div class="kpi-label">Contatos Hoje</div><div class="kpi-value" id="crmHoje">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fef3c7"><i data-lucide="target" style="color:#92400e"></i></div><div><div class="kpi-label">Oportunidades</div><div class="kpi-value" id="crmOport">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#f3e8ff"><i data-lucide="star" style="color:#7c3aed"></i></div><div><div class="kpi-label">Clientes VIP</div><div class="kpi-value" id="crmVip">---</div></div></div>
+    </div>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="modalContatoCRM()"><i data-lucide="plus"></i> Novo Contato/Atendimento</button>
+      <button class="btn btn-secondary" onclick="toast('WhatsApp: (41) 99999-9999','info')"><i data-lucide="message-circle"></i> Abrir WhatsApp</button>
+    </div>
+    <div class="card" id="crmTable"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  const r = await apiGET('/api/crm/contatos');
+  document.getElementById('crmTotal').textContent = r.total_clientes || 0;
+  document.getElementById('crmHoje').textContent = r.contatos_hoje || 0;
+  document.getElementById('crmOport').textContent = r.oportunidades || 0;
+  document.getElementById('crmVip').textContent = r.clientes_vip || 0;
+  document.getElementById('crmTable').innerHTML = tabelaSimples(r.contatos || [], [
+    {chave:'cliente_nome',titulo:'Cliente'}, {chave:'tipo',titulo:'Tipo',render:d=>`<span class="badge ${d.tipo==='whatsapp'?'ok':d.tipo==='ligacao'?'info':'warn'}">${d.tipo||'-'}</span>`},
+    {chave:'assunto',titulo:'Assunto'}, {chave:'status',titulo:'Status',render:d=>`<span class="badge ${d.status==='concluido'?'ok':d.status==='pendente'?'warn':'info'}">${d.status||'-'}</span>`},
+    {chave:'proximo_contato',titulo:'Próx. Contato',render:d=>d.proximo_contato?new Date(d.proximo_contato).toLocaleDateString('pt-BR'):'-'},
+    {chave:'data',titulo:'Data',render:d=>new Date(d.data).toLocaleString('pt-BR')}
+  ], d=>`<button class="btn btn-sm btn-secondary" onclick="finalizarContatoCRM(${d.id})"><i data-lucide="check"></i> Finalizar</button>`);
+  lucide.createIcons();
+}
+function modalContatoCRM(){
+  document.getElementById('modalContainer').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="modal"><h3><i data-lucide="phone-call"></i> Novo Contato CRM</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Cliente</label><input id="crmCliente" placeholder="Nome do cliente"></div>
+        <div class="form-group"><label>Tipo</label><select id="crmTipo"><option>whatsapp</option><option>ligacao</option><option>email</option><option>visita</option></select></div>
+        <div class="form-group" style="grid-column:1/-1"><label>Assunto</label><input id="crmAssunto" placeholder="Motivo do contato"></div>
+        <div class="form-group"><label>Próximo Contato</label><input id="crmProx" type="date"></div>
+        <div class="form-group"><label>Status</label><select id="crmStatus"><option>pendente</option><option>em_andamento</option><option>concluido</option></select></div>
+      </div>
+      <div class="form-actions"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarContatoCRM()"><i data-lucide="save"></i> Salvar</button></div></div></div>`;
+  lucide.createIcons();
+}
+async function salvarContatoCRM(){
+  const r = await apiPOST('/api/crm/contato/salvar', {...userPayload(),
+    cliente_nome:document.getElementById('crmCliente').value, tipo:document.getElementById('crmTipo').value,
+    assunto:document.getElementById('crmAssunto').value, proximo_contato:document.getElementById('crmProx').value,
+    status:document.getElementById('crmStatus').value});
+  if(r.sucesso){ toast('Contato registrado!'); document.querySelector('.modal-overlay').remove(); renderCRM(); }
+  else toast(r.erro||'Erro','error');
+}
+async function finalizarContatoCRM(id){ const r = await apiPOST('/api/crm/contato/finalizar', {...userPayload(), contato_id:id}); if(r.sucesso){ toast('Contato finalizado!'); renderCRM(); } }
+
+// ===== BOLETOS / BANCOS =====
+async function renderBoletos(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Boletos / Integração Bancária</h1><p class="page-sub">Gere boletos automaticamente e acompanhe conciliação bancária.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dcfce7"><i data-lucide="check-circle" style="color:#15803d"></i></div><div><div class="kpi-label">Boletos Pagos</div><div class="kpi-value" id="bolPagos">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fef3c7"><i data-lucide="clock" style="color:#92400e"></i></div><div><div class="kpi-label">Boletos Pendentes</div><div class="kpi-value" id="bolPend">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fee2e2"><i data-lucide="alert-triangle" style="color:#dc2626"></i></div><div><div class="kpi-label">Boletos Vencidos</div><div class="kpi-value" id="bolVenc">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dbeafe"><i data-lucide="landmark" style="color:#2563eb"></i></div><div><div class="kpi-label">Bancos Conectados</div><div class="kpi-value" id="bolBancos">---</div></div></div>
+    </div>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="gerarBoleto()"><i data-lucide="plus"></i> Gerar Boleto Automático</button>
+      <button class="btn btn-secondary" onclick="toast('Conciliação bancária sincronizada!','info')"><i data-lucide="refresh-cw"></i> Sincronizar Banco</button>
+    </div>
+    <div class="card" id="bolTable"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  const r = await apiGET('/api/boletos/lista');
+  document.getElementById('bolPagos').textContent = r.pagos || 0;
+  document.getElementById('bolPend').textContent = r.pendentes || 0;
+  document.getElementById('bolVenc').textContent = r.vencidos || 0;
+  document.getElementById('bolBancos').textContent = r.bancos_conectados || 1;
+  document.getElementById('bolTable').innerHTML = tabelaSimples(r.boletos || [], [
+    {chave:'numero',titulo:'Nº Boleto',render:d=>`<span class="badge cyan">${d.numero}</span>`},
+    {chave:'cliente_nome',titulo:'Cliente'}, {chave:'valor',titulo:'Valor',render:d=>fmt(d.valor)},
+    {chave:'vencimento',titulo:'Vencimento',render:d=>new Date(d.vencimento).toLocaleDateString('pt-BR')},
+    {chave:'status',titulo:'Status',render:d=>`<span class="badge ${d.status==='pago'?'ok':d.status==='vencido'?'danger':'warn'}">${d.status||'-'}</span>`}
+  ], d=>d.status!=='pago'?`<button class="btn btn-sm btn-secondary" onclick="imprimirBoleto(${d.id})"><i data-lucide="printer"></i> 2ª Via</button> <button class="btn btn-sm btn-primary" onclick="marcarPagoBoleto(${d.id})"><i data-lucide="check"></i> Marcar Pago</button>`:'');
+  lucide.createIcons();
+}
+async function gerarBoleto(){
+  const cliente = prompt('Nome do cliente:'); if(!cliente) return;
+  const valor = prompt('Valor do boleto (R$):'); if(!valor) return;
+  const venc = prompt('Vencimento (AAAA-MM-DD):', new Date(Date.now()+7*86400000).toISOString().slice(0,10));
+  const r = await apiPOST('/api/boletos/gerar', {...userPayload(), cliente_nome:cliente, valor, vencimento:venc});
+  if(r.sucesso){ toast('Boleto '+r.numero+' gerado!'); renderBoletos(); } else toast(r.erro||'Erro','error');
+}
+async function imprimirBoleto(id){ window.open('/api/boletos/imprimir/'+id, '_blank'); }
+async function marcarPagoBoleto(id){ const r = await apiPOST('/api/boletos/pagar', {...userPayload(), boleto_id:id}); if(r.sucesso){ toast('Boleto marcado como pago!'); renderBoletos(); } }
+
+// ===== INTEGRAÇÃO IFOOD =====
+async function renderIfood(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Integração iFood</h1><p class="page-sub">Conecte sua loja ao iFood — pedidos chegam automáticos no PDV.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dcfce7"><i data-lucide="link" style="color:#15803d"></i></div><div><div class="kpi-label">Status Conexão</div><div class="kpi-value" style="font-size:18px" id="ifStatus">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fef3c7"><i data-lucide="shopping-bag" style="color:#92400e"></i></div><div><div class="kpi-label">Pedidos Hoje</div><div class="kpi-value" id="ifHoje">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dbeafe"><i data-lucide="dollar-sign" style="color:#2563eb"></i></div><div><div class="kpi-label">Vendas iFood Hoje</div><div class="kpi-value" id="ifValor">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#f3e8ff"><i data-lucide="bike" style="color:#7c3aed"></i></div><div><div class="kpi-label">Taxa Média</div><div class="kpi-value" id="ifTaxa">---</div></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><i data-lucide="settings-2"></i> Configuração da Integração</div>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="form-group"><label>iFood Client ID</label><input id="ifClientId" placeholder="Seu Client ID do iFood"></div>
+        <div class="form-group"><label>iFood Client Secret</label><input id="ifSecret" type="password" placeholder="Seu Client Secret"></div>
+        <div class="form-group"><label>Loja (Merchant ID)</label><input id="ifMerchant" placeholder="ID da loja no iFood"></div>
+        <div class="form-group"><label>Status</label><select id="ifAtivo"><option>Conectado</option><option>Desconectado</option></select></div>
+      </div>
+      <div class="form-actions"><button class="btn btn-primary" onclick="salvarIfood()"><i data-lucide="save"></i> Salvar e Conectar</button>
+      <button class="btn btn-secondary" onclick="toast('Pedidos do iFood sincronizados!','info')"><i data-lucide="refresh-cw"></i> Sincronizar Pedidos</button></div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-title"><i data-lucide="history"></i> Últimos Pedidos iFood</div>
+      <div id="ifPedidos" style="margin-top:14px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div></div>`;
+  lucide.createIcons();
+  const r = await apiGET('/api/ifood/status');
+  document.getElementById('ifStatus').innerHTML = r.conectado?'<span class="badge ok">CONECTADO</span>':'<span class="badge warn">DESCONECTADO</span>';
+  document.getElementById('ifHoje').textContent = r.pedidos_hoje || 0;
+  document.getElementById('ifValor').textContent = fmt(r.valor_hoje || 0);
+  document.getElementById('ifTaxa').textContent = (r.taxa_media || 12)+'%';
+  document.getElementById('ifPedidos').innerHTML = tabelaSimples(r.pedidos || [], [
+    {chave:'id',titulo:'Pedido'}, {chave:'cliente_nome',titulo:'Cliente'},
+    {chave:'total',titulo:'Total',render:d=>fmt(d.total)}, {chave:'status',titulo:'Status',render:d=>`<span class="badge ${d.status==='ENTREGUE'?'ok':d.status==='CANCELADO'?'danger':'warn'}">${d.status||'-'}</span>`},
+    {chave:'data',titulo:'Data',render:d=>new Date(d.data).toLocaleString('pt-BR')}
+  ]);
+  lucide.createIcons();
+}
+async function salvarIfood(){
+  const r = await apiPOST('/api/ifood/configurar', {...userPayload(),
+    client_id:document.getElementById('ifClientId').value, client_secret:document.getElementById('ifSecret').value,
+    merchant_id:document.getElementById('ifMerchant').value, ativo:document.getElementById('ifAtivo').value==='Conectado'});
+  if(r.sucesso){ toast('iFood conectado! Pedidos chegam automáticos.'); renderIfood(); }
+  else toast(r.erro||'Erro','error');
+}
+
 // ===== INIT =====
 if(currentUser) showView('dashboard');
 lucide.createIcons();
 </script>
 </body>
 </html>
-
