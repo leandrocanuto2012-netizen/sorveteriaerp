@@ -125,14 +125,7 @@ function seed() {
 }
 
 
-// ===== MIDDLEWARE: verifica estado do sistema (Matriz aberta?) =====
-function verificarEstado(req, res, next) {
-  const body = req.body || {};
-  const unidadeId = body.unidade_id || 1;
-  const modulo = req.path.split('/')[2] || 'geral';
-  const cs = DB.controle_sistema;
-  const unidade = (DB.unidades || []).find(u => u.id == unidadeId);
-  
+// ===== MIDDLEWARE: verifica estado do sistema   
 // Verificação de estado corrigida
 async function verificarEstado(req, res, next) {
   try {
