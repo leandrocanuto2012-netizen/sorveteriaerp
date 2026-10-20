@@ -124,6 +124,7 @@ function seed() {
   saveDB();
 }
 
+
 // ===== MIDDLEWARE: verifica estado do sistema (Matriz aberta?) =====
 function verificarEstado(req, res, next) {
   const body = req.body || {};
@@ -131,6 +132,37 @@ function verificarEstado(req, res, next) {
   const modulo = req.path.split('/')[2] || 'geral';
   const cs = DB.controle_sistema;
   const unidade = (DB.unidades || []).find(u => u.id == unidadeId);
+  
+// Verificação de estado corrigida
+async function verificarEstado(req, res, next) {
+  try {
+    // Garante que req e res existam
+    if (!res) {
+      console.error('[ERRO] Objeto res está indefinido na verificação de estado');
+      return next ? next(new Error('Resposta indisponível')) : null;
+    }
+
+    // Verifica estado do sistema
+    const sistemaAberto = true; // ← ajuste conforme sua lógica real
+
+    if (!sistemaAberto && req.path !== '/site.html' && !req.path.startsWith('/api/')) {
+      return res.status(503).send(`
+        <div style="padding:2rem;text-align:center;">
+          <h1>Sistema em manutenção</h1>
+          <p>O caixa está fechado no momento. Tente novamente mais tarde.</p>
+        </div>
+      `);
+    }
+
+    // Tudo certo → segue
+    if (typeof next === 'function') next();
+  } catch (erro) {
+    console.error('Erro na verificação de estado:', erro);
+    if (res && res.status) {
+      return res.status(500).json({ erro: 'Falha na verificação de estado' });
+    }
+  }
+}
   // Matriz sempre liberada
   if (unidade && unidade.e_matriz) return next();
   // Matriz aberta → tudo liberado
