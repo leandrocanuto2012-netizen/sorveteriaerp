@@ -26,6 +26,13 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Rotas amigáveis (sem .html)
+app.get('/', (req, res) => res.redirect('/dashboard.html'));
+app.get('/dashboard', (req, res) => res.redirect('/dashboard.html'));
+app.get('/site', (req, res) => res.redirect('/site.html'));
+app.get('/painel', (req, res) => res.redirect('/dashboard.html'));
+app.get('/loja', (req, res) => res.redirect('/site.html'));
+
 // ===== STORE — Supabase (se configurado) ou arquivo local =====
 let DB = {};
 const TABELAS = ['unidades','funcionarios','produtos','clientes','fidelidade','fornecedores','caixas','tesouraria','vendas','comandas','contas','notas_fiscais','autorizacoes','ponto','ferias','holerites','documentos_rh','remessas','patrimonio','imoveis','eventos','fichas_tecnicas','ordens_servico','estoque','mov_estoque','pdv_emergencial','log_bloqueio','log_caixa','mov_caixa','logistica','frota','checklists_exec','pedidos_site','bot_config','bot_regras','ia_pedidos','receitas','acertos','abonos','transferencias','bot_log'];
@@ -790,6 +797,91 @@ app.post('/api/site/pedido', (req, res) => {
   DB.pedidos_site.push(pedido);
   saveDB();
   res.json({ sucesso: true, pedido_id: pedido.id });
+});
+
+// ===== CRM / CONTATOS =====
+app.get('/api/crm/contatos', (req, res) => {
+  const contatos = (DB.crm_contatos || []).slice(-50).reverse();
+  const hojeStr = hoje();
+  res.json({
+    total_clientes: (DB.clientes || []).length,
+    contatos_hoje: contatos.filter(c => (c.data || '').slice(0,10) === hojeStr).length,
+    oportunidades: contatos.filter(c => c.status === 'pendente' || c.status === 'em_andamento').length,
+    clientes_vip: (DB.clientes || []).filter(c => Number(c.valor_total_gasto || 0) > 500).length,
+    contatos
+  });
+});
+app.post('/api/crm/contato/salvar', (req, res) => {
+  DB.crm_contatos = DB.crm_contatos || [];
+  DB.crm_contatos.push({ id: nextId('crm_contatos'), ...req.body, data: agora(), status: req.body.status || 'pendente' });
+  saveDB();
+  res.json({ sucesso: true });
+});
+app.post('/api/crm/contato/finalizar', (req, res) => {
+  const c = (DB.crm_contatos || []).find(x => x.id == req.body.contato_id);
+  if (c) c.status = 'concluido';
+  saveDB();
+  res.json({ sucesso: true });
+});
+
+// ===== BOLETOS / BANCOS =====
+app.get('/api/boletos/lista', (req, res) => {
+  const boletos = (DB.boletos || []).slice(-50).reverse();
+  res.json({
+    boletos,
+    pagos: boletos.filter(b => b.status === 'pago').length,
+    pendentes: boletos.filter(b => b.status === 'pendente').length,
+    vencidos: boletos.filter(b => b.status === 'vencido' || (b.vencimento < hoje() && b.status !== 'pago')).length,
+    bancos_conectados: 1
+  });
+});
+app.post('/api/boletos/gerar', (req, res) => {
+  const numero = 'BOL-' + String((DB.boletos || []).length + 1).padStart(6, '0');
+  DB.boletos = DB.boletos || [];
+  DB.boletos.push({ id: nextId('boletos'), numero, ...req.body, status: 'pendente', data_geracao: agora() });
+  saveDB();
+  res.json({ sucesso: true, numero });
+});
+app.post('/api/boletos/pagar', (req, res) => {
+  const b = (DB.boletos || []).find(x => x.id == req.body.boleto_id);
+  if (b) { b.status = 'pago'; b.data_pagamento = agora(); }
+  saveDB();
+  res.json({ sucesso: true });
+});
+app.get('/api/boletos/imprimir/:id', (req, res) => {
+  const b = (DB.boletos || []).find(x => x.id == req.params.id);
+  res.json({ boleto: b, linha_digitavel: '0019050095401448160690601020000058185000000000' });
+});
+
+// ===== IFOOD =====
+app.get('/api/ifood/status', (req, res) => {
+  const cfg = DB.ifood_config || { conectado: false };
+  const pedidos = (DB.pedidos_site || []).filter(p => p.origem === 'ifood').slice(-20).reverse();
+  const hojeStr = hoje();
+  res.json({
+    conectado: cfg.conectado || false,
+    pedidos_hoje: pedidos.filter(p => (p.data || '').slice(0,10) === hojeStr).length,
+    valor_hoje: pedidos.filter(p => (p.data || '').slice(0,10) === hojeStr).reduce((s,p) => s + Number(p.total || 0), 0),
+    taxa_media: 12,
+    pedidos
+  });
+});
+app.post('/api/ifood/configurar', (req, res) => {
+  DB.ifood_config = { ...req.body, conectado: req.body.ativo, configurado_em: agora() };
+  saveDB();
+  res.json({ sucesso: true });
+});
+
+// ===== STATUS DAS LOJAS (para dashboard) =====
+app.get('/api/lojas/status', (req, res) => {
+  const lojas = (DB.unidades || []).map(u => ({
+    id: u.id, nome: u.nome, tipo: u.tipo, e_matriz: u.e_matriz,
+    online: true,
+    caixa_aberto: (DB.caixas || []).some(c => c.unidade_id === u.id && c.status === 'aberto'),
+    vendas_hoje: (DB.vendas || []).filter(v => (v.data || '').slice(0,10) === hoje() && v.unidade_id === u.id).reduce((s,v) => s + Number(v.total || 0), 0),
+    pedidos_pendentes: (DB.pedidos_site || []).filter(p => p.unidade_id === u.id && p.status !== 'ENTREGUE' && p.status !== 'CANCELADO').length
+  }));
+  res.json({ lojas, matriz_aberta: DB.controle_sistema?.matriz_aberta || false });
 });
 
 // ===== HEALTH CHECK =====
