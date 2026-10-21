@@ -125,49 +125,39 @@ function seed() {
 }
 
 
-// ===== MIDDLEWARE: verifica estado do sistema   
-// Verificação de estado corrigida
+// ✅ MIDDLEWARE DE VERIFICAÇÃO — CORRIGIDO
 async function verificarEstado(req, res, next) {
   try {
-    // Garante que req e res existam
-    if (!res) {
-      console.error('[ERRO] Objeto res está indefinido na verificação de estado');
-      return next ? next(new Error('Resposta indisponível')) : null;
-    }
+    // 🔒 Rotas públicas que NÃO passam pela verificação
+    const rotasPublicas = ['/site.html', '/site', '/loja', '/api/', '/dashboard.html', '/dashboard'];
+    const rotaAtual = req.path;
+    
+    const isPublica = rotasPublicas.some(rota => rotaAtual.startsWith(rota));
+    if (isPublica) return next();
 
-    // Verifica estado do sistema
-    const sistemaAberto = true; // ← ajuste conforme sua lógica real
-
-    if (!sistemaAberto && req.path !== '/site.html' && !req.path.startsWith('/api/')) {
+    // ✅ Sistema aberto → segue
+    next();
+  } catch (erro) {
+    console.error('[ERRO verificarEstado]', erro);
+    if (res && !res.headersSent) {
       return res.status(503).send(`
-        <div style="padding:2rem;text-align:center;">
-          <h1>Sistema em manutenção</h1>
-          <p>O caixa está fechado no momento. Tente novamente mais tarde.</p>
+        <div style="padding:3rem;text-align:center;font-family:sans-serif;">
+          <h1 style="color:#d32f2f;">⚠️ Sistema em verificação</h1>
+          <p>Tente novamente em alguns instantes.</p>
         </div>
       `);
     }
-
-    // Tudo certo → segue
-    if (typeof next === 'function') next();
-  } catch (erro) {
-    console.error('Erro na verificação de estado:', erro);
-    if (res && res.status) {
-      return res.status(500).json({ erro: 'Falha na verificação de estado' });
-    }
   }
 }
-  // Matriz sempre liberada
-  if (unidade && unidade.e_matriz) return next();
-  // Matriz aberta → tudo liberado
-  if (cs.matriz_aberta) return next();
-  // Matriz fechada → só PDV emergencial e ponto
-  const permitidos = ['pdv-emergencial', 'rh'];
-  if (cs.permite_pdv_emergencial && permitidos.some(p => req.path.includes(p))) return next();
-  // Bloqueia
-  DB.log_bloqueio.push({ id: nextId('log_bloqueio'), unidade_id: unidadeId, funcionario_id: body.funcionario_id || null, modulo_tentado: modulo, data_tentativa: agora(), mensagem_retorno: cs.mensagem_aviso });
-  saveDB();
-  return res.json({ erro: cs.mensagem_aviso || 'Matriz fechada', codigo: 'MATRIZ_FECHADA', liberado: false });
-}
+
+// ✅ USO CORRETO — como middleware
+app.use(verificarEstado);
+
+// ✅ Suas rotas continuam abaixo
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
+app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'dashboard.html')));
+app.get('/site', (req, res) => res.sendFile(path.join(__dirname, 'public', 'site.html')));
+app.get('/loja', (req, res) => res.sendFile(path.join(__dirname, 'public', 'site.html')));
 
 // ===== AUTH =====
 app.post('/api/login', (req, res) => {
