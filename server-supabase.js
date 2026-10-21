@@ -1206,6 +1206,136 @@ app.post('/api/meta-ia/chat', (req, res) => {
 });
 app.get('/api/meta-ia/historico', (req, res) => res.json({ historico: (DB.meta_ia_log || []).slice(-20).reverse() }));
 
+// ===== NOTA FISCAL — CANCELAMENTO (integrado com vendas/PDV) =====
+app.post('/api/nf/cancelar', async (req, res) => {
+  const { nf_id, motivo, senha_adm } = req.body;
+  if (!senha_adm) return res.json({ erro: 'Cancelamento de NF exige senha do administrador' });
+  const adm = (DB.funcionarios || []).find(f => f.senha_hash === senha_adm && f.role === 'admin');
+  if (!adm) return res.json({ erro: 'Senha de administrador inválida' });
+  const nf = (DB.notas_fiscais || []).find(n => n.id == nf_id);
+  if (!nf) return res.json({ erro: 'NF não encontrada' });
+  if (nf.status === 'cancelada') return res.json({ erro: 'NF já está cancelada' });
+  nf.status = 'cancelada'; nf.motivo_cancelamento = motivo; nf.cancelada_por = adm.nome; nf.cancelada_em = agora();
+  const venda = (DB.vendas || []).find(v => v.id == nf.origem_id);
+  if (venda) { venda.status = 'ESTORNADA'; venda.motivo_estorno = 'NF cancelada: ' + motivo; }
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'NF ' + nf.numero + ' cancelada! Venda estornada.' });
+});
+app.get('/api/nf/cupom/:id', (req, res) => {
+  const nf = (DB.notas_fiscais || []).find(n => n.id == req.params.id);
+  if (!nf) return res.status(404).json({ erro: 'NF não encontrada' });
+  res.json({ cupom: { ...nf, danfe: 'DANFE gerada — código: ' + (nf.chave_acesso || 'SEM-CHAVE'), prefeitura_integrado: true } });
+});
+
+// ===== CHAMADOS / HELP DESK =====
+app.get('/api/chamados/lista', (req, res) => {
+  const chamados = (DB.chamados || []).slice(-50).reverse().map(c => ({
+    ...c,
+    aberto_por_nome: ((DB.funcionarios || []).find(f => f.id === c.aberto_por_id) || {}).nome,
+    responsavel_nome: ((DB.funcionarios || []).find(f => f.id === c.responsavel_id) || {}).nome
+  }));
+  res.json({ chamados });
+});
+app.post('/api/chamados/abrir', (req, res) => {
+  const protocolo = 'CHM-' + new Date().getFullYear() + '-' + String((DB.chamados || []).length + 1).padStart(5, '0');
+  DB.chamados = DB.chamados || [];
+  DB.chamados.push({ id: nextId('chamados'), protocolo, ...req.body, status: 'aberto', prioridade: req.body.prioridade || 'media', aberto_em: agora(), tratativas: [], devolutivas: [] });
+  saveDB();
+  res.json({ sucesso: true, protocolo });
+});
+app.post('/api/chamados/tratativa', (req, res) => {
+  const c = (DB.chamados || []).find(x => x.id == req.body.chamado_id);
+  if (!c) return res.json({ erro: 'Chamado não encontrado' });
+  c.tratativas = c.tratativas || [];
+  c.tratativas.push({ id: nextId('tratativas'), ...req.body, data: agora() });
+  c.status = req.body.finalizar ? 'fechado' : 'em_andamento';
+  if (req.body.finalizar) c.fechado_em = agora();
+  saveDB();
+  res.json({ sucesso: true });
+});
+app.post('/api/chamados/devolutiva', (req, res) => {
+  const c = (DB.chamados || []).find(x => x.id == req.body.chamado_id);
+  if (!c) return res.json({ erro: 'Chamado não encontrado' });
+  c.devolutivas = c.devolutivas || [];
+  c.devolutivas.push({ id: nextId('devolutivas'), ...req.body, data: agora(), enviada_para: req.body.enviada_para || 'cliente' });
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Devolutiva registrada!' });
+});
+
+// ===== PROTOCOLO DE ENTREGAS =====
+app.get('/api/protocolo-entregas/lista', (req, res) => {
+  const protocolos = (DB.protocolos_entrega || []).slice(-50).reverse().map(p => ({
+    ...p,
+    entregador_nome: ((DB.funcionarios || []).find(f => f.id === p.entregador_id) || {}).nome
+  }));
+  res.json({ protocolos });
+});
+app.post('/api/protocolo-entregas/criar', (req, res) => {
+  const protocolo = 'ENT-' + hoje().replace(/-/g, '') + '-' + String((DB.protocolos_entrega || []).length + 1).padStart(4, '0');
+  DB.protocolos_entrega = DB.protocolos_entrega || [];
+  DB.protocolos_entrega.push({ id: nextId('protocolos_entrega'), protocolo, ...req.body, status: 'pendente', criado_em: agora(), assinatura_recebedor: null });
+  saveDB();
+  res.json({ sucesso: true, protocolo });
+});
+app.post('/api/protocolo-entregas/confirmar', (req, res) => {
+  const p = (DB.protocolos_entrega || []).find(x => x.protocolo === req.body.protocolo);
+  if (!p) return res.json({ erro: 'Protocolo não encontrado' });
+  p.status = 'entregue'; p.entregue_em = agora(); p.assinatura_recebedor = req.body.assinatura_recebedor || 'confirmado'; p.observacao_entrega = req.body.observacao || '';
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Entrega confirmada! Protocolo ' + p.protocolo });
+});
+
+// ===== CHECKLISTS AVANÇADOS (item a item com senha operador + ADM) =====
+app.get('/api/checklists/modelos', (req, res) => {
+  const modelos = [
+    { id: 1, nome: 'Abertura de Loja', itens: ['Verificar temperatura freezers', 'Limpar balcão de atendimento', 'Conferir estoque de picolés', 'Abrir tesouraria', 'Abrir caixa', 'Testar impressora fiscal', 'Verificar validade dos produtos'] },
+    { id: 2, nome: 'Fechamento de Loja', itens: ['Fechar caixa', 'Fechar tesouraria', 'Conferir valores no caixa', 'Limpar freezers', 'Desligar equipamentos', 'Trancar portas', 'Registrar ocorrências do dia'] },
+    { id: 3, nome: 'Recebimento de Mercadoria', itens: ['Conferir nota fiscal do fornecedor', 'Verificar temperatura dos produtos', 'Conferir quantidades', 'Verificar validade', 'Inserir no estoque', 'Guardar em local correto', 'Assinar recebimento'] },
+    { id: 4, nome: 'Transferência para Filial', itens: ['Conferir itens da remessa', 'Conferir valores/malote', 'Lacrar embalagem', 'Registrar protocolo', 'Assinar saída (operador)', 'Assinar saída (ADM)', 'Enviar para filial'] },
+    { id: 5, nome: 'Mudança de Loja', itens: ['Etiquetar todos os móveis', 'Conferir freezers e geladeiras', 'Conferir balcões e cadeiras', 'Conferir equipamentos', 'Conferir lâmpadas', 'Gerar checklist de saída', 'Assinar conferência (operador + ADM)'] },
+    { id: 6, nome: 'Evento/Festa', itens: ['Conferir sorvetes/picolés', 'Conferir freezers portáteis', 'Conferir embalagens', 'Verificar tempo de deslocamento', 'Confirmar com cliente', 'Separar uniformes', 'Checklist de retorno'] },
+    { id: 7, nome: 'Higiene ANVISA', itens: ['Verificar uniformes', 'Verificar toucas e luvas', 'Conferir temperatura freezers', 'Conferir limpeza', 'Verificar água potável', 'Conferir controle de pragas', 'Registrar BPF do dia'] }
+  ];
+  res.json({ modelos });
+});
+app.post('/api/checklist/iniciar', (req, res) => {
+  const itens = (req.body.itens || []).map((texto, i) => ({ id: i + 1, texto, marcado: false, marcado_por: null, marcado_em: null }));
+  const protocolo = 'CHK-' + hoje().replace(/-/g, '') + '-' + String((DB.checklists_exec || []).length + 1).padStart(4, '0');
+  DB.checklists_exec = DB.checklists_exec || [];
+  DB.checklists_exec.push({ id: nextId('checklists_exec'), protocolo, nome: req.body.nome || 'Checklist', itens, status: 'em_andamento', iniciado_por: req.body.funcionario_id || 1, iniciado_em: agora(), finalizado: false, aprovado: false });
+  saveDB();
+  res.json({ sucesso: true, protocolo, checklist_id: DB.checklists_exec[DB.checklists_exec.length - 1].id });
+});
+app.post('/api/checklist/marcar-item', (req, res) => {
+  const { checklist_id, item_id, senha_operador, senha_adm } = req.body;
+  if (!senha_operador) return res.json({ erro: 'Senha do operador obrigatória' });
+  if (!senha_adm) return res.json({ erro: 'Senha do ADMINISTRADOR obrigatória' });
+  const op = (DB.funcionarios || []).find(f => f.senha_hash === senha_operador);
+  const adm = (DB.funcionarios || []).find(f => f.senha_hash === senha_adm && f.role === 'admin');
+  if (!op) return res.json({ erro: 'Senha do operador inválida' });
+  if (!adm) return res.json({ erro: 'Senha do administrador inválida' });
+  const chk = (DB.checklists_exec || []).find(c => c.id == checklist_id);
+  if (!chk) return res.json({ erro: 'Checklist não encontrado' });
+  const item = (chk.itens || []).find(i => i.id == item_id);
+  if (!item) return res.json({ erro: 'Item não encontrado' });
+  item.marcado = true; item.marcado_por = op.nome + ' + ADM: ' + adm.nome; item.marcado_em = agora();
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Item marcado com confirmação dupla!' });
+});
+app.post('/api/checklist/finalizar', (req, res) => {
+  const { checklist_id, senha_adm } = req.body;
+  if (!senha_adm) return res.json({ erro: 'Finalizar exige senha do administrador' });
+  const adm = (DB.funcionarios || []).find(f => f.senha_hash === senha_adm && f.role === 'admin');
+  if (!adm) return res.json({ erro: 'Senha do administrador inválida' });
+  const chk = (DB.checklists_exec || []).find(c => c.id == checklist_id);
+  if (!chk) return res.json({ erro: 'Checklist não encontrado' });
+  const pendentes = (chk.itens || []).filter(i => !i.marcado).length;
+  if (pendentes > 0) return res.json({ erro: 'Ainda existem ' + pendentes + ' item(ns) sem confirmação dupla (operador + ADM).' });
+  chk.finalizado = true; chk.aprovado = true; chk.status = 'finalizado_aprovado'; chk.finalizado_por = adm.nome; chk.finalizado_em = agora();
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Checklist finalizado e APROVADO por ' + adm.nome + '! Protocolo: ' + chk.protocolo });
+});
+
 // ===== HEALTH CHECK =====
 app.get('/api/health', (req, res) => res.json({ status: 'ok', sistema: DB.controle_sistema?.status_geral, banco: USAR_SUPABASE ? 'supabase' : 'local', hora: agora() }));
 
