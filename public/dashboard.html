@@ -261,7 +261,9 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px}
     <div class="menu-group" data-group="chk">
       <div class="menu-group-header" onclick="toggleGroup(this)"><i data-lucide="list-checks"></i> Checklists <i data-lucide="chevron-down" class="chev"></i></div>
       <div class="menu-items">
-        <div class="menu-item" data-view="checklists" onclick="showView('checklists')"><i data-lucide="clipboard-check"></i> Executar Checklist</div>
+        <div class="menu-item" data-view="checklists" onclick="showView('checklists')"><i data-lucide="clipboard-check"></i> Executar Checklist (com senha)</div>
+        <div class="menu-item" data-view="chamados" onclick="showView('chamados')"><i data-lucide="headset"></i> Chamados / Help Desk</div>
+        <div class="menu-item" data-view="protocolo-entregas" onclick="showView('protocolo-entregas')"><i data-lucide="truck"></i> Protocolo de Entregas</div>
       </div>
     </div>
     <div class="menu-group" data-group="ia">
@@ -361,7 +363,7 @@ function showView(view){
     movimentos: renderMovimentos, remessas: renderRemessas, contas: renderContas,
     tesouraria: renderTesouraria, 'notas-fiscais': renderNotasFiscais, autorizacoes: renderAutorizacoes,
     ponto: renderPonto, ferias: renderFerias, holerites: renderHolerites, rescisao: renderRescisao,
-    'documentos-rh': renderDocumentosRH, logistica: renderLogistica, checklists: renderChecklists,
+    'documentos-rh': renderDocumentosRH, logistica: renderLogistica, checklists: renderChecklists, chamados: renderChamados, 'protocolo-entregas': renderProtocoloEntregas,
     'bot-config': renderBotConfig, gerente: renderGerente, 'ia-vendas': renderIAVendas,
     crm: renderCRM, boletos: renderBoletos, ifood: renderIfood, integracoes: renderIntegracoes, metas: renderMetas, 'meta-ia': renderMetaIA
   };
@@ -2373,6 +2375,208 @@ async function enviarIA(){
     chat.innerHTML += `<div style="color:#dc2626;font-size:13px;padding:8px">Erro ao conectar com a IA.</div>`;
   }
   chat.scrollTop = chat.scrollHeight;
+}
+
+// ===== CHAMADOS / HELP DESK =====
+async function renderChamados(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Chamados / Help Desk</h1><p class="page-sub">Abra chamados, acompanhe tratativas e registre devolutivas.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fee2e2"><i data-lucide="alert-circle" style="color:#dc2626"></i></div><div><div class="kpi-label">Abertos</div><div class="kpi-value" id="chAbertos">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fef3c7"><i data-lucide="loader" style="color:#d97706"></i></div><div><div class="kpi-label">Em Andamento</div><div class="kpi-value" id="chAndamento">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dcfce7"><i data-lucide="check-circle" style="color:#16a34a"></i></div><div><div class="kpi-label">Fechados</div><div class="kpi-value" id="chFechados">---</div></div></div>
+    </div>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="modalAbrirChamado()"><i data-lucide="plus"></i> Abrir Chamado</button></div>
+    <div class="card" id="chamadosLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/chamados/lista');
+    const ch = r.chamados || [];
+    document.getElementById('chAbertos').textContent = ch.filter(c=>c.status==='aberto').length;
+    document.getElementById('chAndamento').textContent = ch.filter(c=>c.status==='em_andamento').length;
+    document.getElementById('chFechados').textContent = ch.filter(c=>c.status==='fechado').length;
+    const cor = { aberto:'#dc2626', em_andamento:'#d97706', fechado:'#16a34a' };
+    document.getElementById('chamadosLista').innerHTML = ch.map(c=>`
+      <div style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div><b>${c.protocolo}</b> — ${c.titulo||'Sem título'} <span class="badge" style="background:${cor[c.status]||'#64748b'}22;color:${cor[c.status]||'#64748b'}">${c.status}</span></div>
+          <div style="font-size:12px;color:var(--muted)">${(c.aberto_em||'').slice(0,16)}</div>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:4px 0"><b>Quem abriu:</b> ${c.aberto_por_nome||'—'} | <b>Motivo:</b> ${c.motivo||c.descricao||'—'}</p>
+        <p style="font-size:13px;color:var(--muted);margin:4px 0"><b>Tratativas:</b> ${(c.tratativas||[]).length} | <b>Devolutivas:</b> ${(c.devolutivas||[]).length}</p>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-sm btn-secondary" onclick="modalTratativa(${c.id})"><i data-lucide="wrench"></i> Tratativa</button>
+          <button class="btn btn-sm btn-secondary" onclick="modalDevolutiva(${c.id})"><i data-lucide="reply"></i> Devolutiva</button>
+          <button class="btn btn-sm btn-secondary" onclick="verChamado(${c.id})"><i data-lucide="eye"></i> Ver</button>
+        </div>
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="inbox"></i><p>Nenhum chamado aberto.</p></div>';
+    lucide.createIcons();
+  } catch(e) { document.getElementById('chamadosLista').innerHTML = '<p style="color:var(--muted)">Erro ao carregar.</p>'; }
+}
+function modalAbrirChamado(){
+  document.getElementById('modalContainer').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal"><h3><i data-lucide="headset"></i> Abrir Chamado</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Título</label><input id="chTitulo" placeholder="Ex: Freezer não está gelando"></div>
+      <div class="form-group"><label>Prioridade</label><select id="chPrioridade"><option>baixa</option><option selected>media</option><option>alta</option><option>urgente</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Motivo / Descrição</label><textarea id="chMotivo" rows="3" placeholder="Descreva o problema..."></textarea></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvarChamado()"><i data-lucide="send"></i> Abrir Chamado</button></div></div></div>`;
+  lucide.createIcons();
+}
+async function salvarChamado(){
+  const r = await apiPOST('/api/chamados/abrir', {...userPayload(), titulo:document.getElementById('chTitulo').value, motivo:document.getElementById('chMotivo').value, prioridade:document.getElementById('chPrioridade').value, aberto_por_id: userPayload().funcionario_id||1});
+  if(r.sucesso){ toast('Chamado '+r.protocolo+' aberto!'); document.querySelector('.modal-overlay').remove(); renderChamados(); }
+  else toast(r.erro||'Erro','error');
+}
+function modalTratativa(id){
+  document.getElementById('modalContainer').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal"><h3><i data-lucide="wrench"></i> Registrar Tratativa</h3>
+    <div class="form-grid">
+      <div class="form-group" style="grid-column:1/-1"><label>O que foi feito?</label><textarea id="trDesc" rows="3" placeholder="Descreva a ação tomada..."></textarea></div>
+      <div class="form-group"><label>Finalizar chamado?</label><select id="trFinalizar"><option value="false">Não, continua em andamento</option><option value="true">Sim, fechar chamado</option></select></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvarTratativa(${id})"><i data-lucide="check"></i> Registrar</button></div></div></div>`;
+  lucide.createIcons();
+}
+async function salvarTratativa(id){
+  const r = await apiPOST('/api/chamados/tratativa', {...userPayload(), chamado_id:id, descricao:document.getElementById('trDesc').value, finalizar:document.getElementById('trFinalizar').value==='true'});
+  if(r.sucesso){ toast('Tratativa registrada!'); document.querySelector('.modal-overlay').remove(); renderChamados(); } else toast(r.erro||'Erro','error');
+}
+function modalDevolutiva(id){
+  document.getElementById('modalContainer').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal"><h3><i data-lucide="reply"></i> Registrar Devolutiva</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Enviar para</label><select id="dvPara"><option>cliente</option><option>fornecedor</option><option>interno</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Mensagem da devolutiva</label><textarea id="dvMsg" rows="3" placeholder="Resposta/retorno..."></textarea></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvarDevolutiva(${id})"><i data-lucide="send"></i> Enviar Devolutiva</button></div></div></div>`;
+  lucide.createIcons();
+}
+async function salvarDevolutiva(id){
+  const r = await apiPOST('/api/chamados/devolutiva', {...userPayload(), chamado_id:id, mensagem:document.getElementById('dvMsg').value, enviada_para:document.getElementById('dvPara').value});
+  if(r.sucesso){ toast('Devolutiva enviada!'); document.querySelector('.modal-overlay').remove(); renderChamados(); } else toast(r.erro||'Erro','error');
+}
+function verChamado(id){ toast('Chamado #'+id+' — ver detalhes no painel.','info'); }
+
+// ===== PROTOCOLO DE ENTREGAS =====
+async function renderProtocoloEntregas(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Protocolo de Entregas</h1><p class="page-sub">Controle de entregas com protocolo e assinatura do recebedor.</p>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="modalProtocolo()"><i data-lucide="plus"></i> Novo Protocolo</button></div>
+    <div class="card" id="protoLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/protocolo-entregas/lista');
+    const p = r.protocolos || [];
+    document.getElementById('protoLista').innerHTML = p.map(x=>`
+      <div style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><b>${x.protocolo}</b> — ${x.destinatario||x.cliente||'Entrega'} <span class="badge ${x.status==='entregue'?'ok':'warn'}">${x.status}</span></div>
+          <div style="font-size:12px;color:var(--muted)">${(x.criado_em||'').slice(0,16)}</div>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:6px 0"><b>Entregador:</b> ${x.entregador_nome||'—'} | <b>Itens:</b> ${x.itens||'—'} | <b>Valor:</b> ${fmt(x.valor||0)}</p>
+        ${x.status!=='entregue'?`<button class="btn btn-sm btn-primary" onclick="confirmarEntrega('${x.protocolo}')" style="margin-top:6px"><i data-lucide="check"></i> Confirmar Entrega</button>`:`<p style="font-size:12px;color:#16a34a;margin-top:6px">✓ Entregue em ${(x.entregue_em||'').slice(0,16)} — Assinatura: ${x.assinatura_recebedor||'confirmado'}</p>`}
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="inbox"></i><p>Nenhum protocolo registrado.</p></div>';
+    lucide.createIcons();
+  } catch(e) { document.getElementById('protoLista').innerHTML = '<p style="color:var(--muted)">Erro ao carregar.</p>'; }
+}
+function modalProtocolo(){
+  document.getElementById('modalContainer').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal"><h3><i data-lucide="truck"></i> Novo Protocolo de Entrega</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Destinatário</label><input id="ptDest" placeholder="Nome do cliente/filial"></div>
+      <div class="form-group"><label>Entregador</label><input id="ptEntreg" placeholder="Nome do entregador"></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Itens da entrega</label><textarea id="ptItens" rows="2" placeholder="Ex: 50 picolés + 10 açaís"></textarea></div>
+      <div class="form-group"><label>Valor (R$)</label><input id="ptValor" type="number" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvarProtocolo()"><i data-lucide="save"></i> Gerar Protocolo</button></div></div></div>`;
+  lucide.createIcons();
+}
+async function salvarProtocolo(){
+  const r = await apiPOST('/api/protocolo-entregas/criar', {...userPayload(), destinatario:document.getElementById('ptDest').value, entregador:document.getElementById('ptEntreg').value, itens:document.getElementById('ptItens').value, valor:Number(document.getElementById('ptValor').value||0)});
+  if(r.sucesso){ toast('Protocolo '+r.protocolo+' gerado!'); document.querySelector('.modal-overlay').remove(); renderProtocoloEntregas(); } else toast(r.erro||'Erro','error');
+}
+async function confirmarEntrega(proto){
+  const assinatura = prompt('Nome de quem recebeu (assinatura):');
+  if(!assinatura) return;
+  const r = await apiPOST('/api/protocolo-entregas/confirmar', {...userPayload(), protocolo:proto, assinatura_recebedor:assinatura});
+  if(r.sucesso){ toast(r.mensagem); renderProtocoloEntregas(); } else toast(r.erro||'Erro','error');
+}
+
+// ===== CHECKLISTS AVANÇADOS (com senha operador + ADM) =====
+let checklistAtual = null;
+async function renderChecklists(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Checklists (com confirmação de senha)</h1><p class="page-sub">Cada item exige senha do operador E do administrador. Botão Finalizar e Aprovar no final.</p>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="escolherModeloChecklist()"><i data-lucide="plus"></i> Iniciar Novo Checklist</button></div>
+    <div id="checklistArea" style="margin-top:16px">
+      <div class="card"><div class="empty-state"><i data-lucide="clipboard-list"></i><p>Selecione um modelo para iniciar. Modelos: Abertura de Loja, Fechamento, Recebimento, Remessa p/ Filial, Mudança, Evento, Higiene ANVISA.</p></div></div>
+    </div>`;
+  lucide.createIcons();
+}
+async function escolherModeloChecklist(){
+  const r = await apiGET('/api/checklists/modelos');
+  const m = r.modelos || [];
+  document.getElementById('checklistArea').innerHTML = `<div class="card"><div class="card-title"><i data-lucide="list"></i> Escolha o modelo</div>
+    ${m.map(x=>`<button class="btn btn-secondary" style="margin:4px" onclick="iniciarChecklist(${x.id},'${x.nome}',${JSON.stringify(x.itens).replace(/"/g,'&quot;')})">${x.nome} (${x.itens.length} itens)</button>`).join('')}
+  </div>`;
+  lucide.createIcons();
+}
+async function iniciarChecklist(modeloId, nome, itens){
+  const r = await apiPOST('/api/checklist/iniciar', {...userPayload(), modelo_id:modeloId, nome, itens});
+  if(r.sucesso){ checklistAtual = r.checklist_id; toast('Checklist '+r.protocolo+' iniciado!'); exibirChecklist(r.checklist_id, nome, itens); }
+  else toast(r.erro||'Erro','error');
+}
+function exibirChecklist(id, nome, itens){
+  const html = `<div class="card">
+    <div class="card-title"><i data-lucide="clipboard-check"></i> ${nome} — Checklist em andamento</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">⚠️ Cada item precisa da SENHA DO OPERADOR e da SENHA DO ADMINISTRADOR para ser confirmado.</p>
+    <div id="itensChecklist">
+      ${itens.map((t,i)=>`<div id="itemChk${i+1}" style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+        <div id="chkBox${i+1}" style="width:24px;height:24px;border:2px solid #cbd5e1;border-radius:6px;flex-shrink:0"></div>
+        <span style="flex:1;font-size:14px">${i+1}. ${t}</span>
+        <button class="btn btn-sm btn-secondary" onclick="confirmarItem(${id}, ${i+1}, '${t.replace(/'/g,"\\'")}')"><i data-lucide="lock"></i> Confirmar (2 senhas)</button>
+      </div>`).join('')}
+    </div>
+    <div style="margin-top:16px;padding:14px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px">
+      <p style="font-size:13px;color:#92400e;margin-bottom:8px"><b>Finalizar e Aprovar Checklist</b> — exige senha do administrador. Só libera quando TODOS os itens estiverem confirmados.</p>
+      <button class="btn btn-primary" style="background:#16a34a" onclick="finalizarAprovarChecklist(${id})"><i data-lucide="check-circle"></i> Finalizar e Aprovar Checklist</button>
+    </div>
+  </div>`;
+  document.getElementById('checklistArea').innerHTML = html;
+  lucide.createIcons();
+}
+async function confirmarItem(checklistId, itemId, texto){
+  const senhaOp = prompt('SENHA DO OPERADOR (para confirmar: "'+texto+'"):');
+  if(!senhaOp) return;
+  const senhaAdm = prompt('SENHA DO ADMINISTRADOR (confirmação dupla obrigatória):');
+  if(!senhaAdm) return;
+  const r = await apiPOST('/api/checklist/marcar-item', {...userPayload(), checklist_id:checklistId, item_id:itemId, senha_operador:senhaOp, senha_adm:senhaAdm});
+  if(r.sucesso){
+    toast(r.mensagem);
+    document.getElementById('chkBox'+itemId).style.background = '#16a34a';
+    document.getElementById('chkBox'+itemId).innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="4"><polyline points="20 6 9 17 4 12"/></svg>';
+    document.getElementById('itemChk'+itemId).style.background = '#f0fdf4';
+  } else toast(r.erro||'Erro','error');
+}
+async function finalizarAprovarChecklist(id){
+  const senhaAdm = prompt('SENHA DO ADMINISTRADOR para FINALIZAR E APROVAR o checklist:');
+  if(!senhaAdm) return;
+  const r = await apiPOST('/api/checklist/finalizar', {...userPayload(), checklist_id:id, senha_adm:senhaAdm});
+  if(r.sucesso){ toast(r.mensagem, 'success'); document.getElementById('checklistArea').innerHTML = '<div class="card"><div class="empty-state" style="color:#16a34a"><i data-lucide="check-circle"></i><p><b>'+r.mensagem+'</b></p></div></div>'; }
+  else toast(r.erro||'Erro','error');
+}
+
+// ===== CANCELAR NF (integrado com vendas/PDV) =====
+async function cancelarNF(nfId){
+  const motivo = prompt('Motivo do cancelamento da NF:');
+  if(!motivo) return;
+  const senhaAdm = prompt('SENHA DO ADMINISTRADOR (obrigatória para cancelar NF):');
+  if(!senhaAdm) return;
+  const r = await apiPOST('/api/nf/cancelar', {...userPayload(), nf_id:nfId, motivo, senha_adm:senhaAdm});
+  if(r.sucesso){ toast(r.mensagem,'success'); if(typeof renderNotasFiscais==='function') renderNotasFiscais(); }
+  else toast(r.erro||'Erro','error');
 }
 
 // ===== INIT =====
