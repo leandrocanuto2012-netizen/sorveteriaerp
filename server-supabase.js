@@ -409,8 +409,8 @@ app.post('/api/fornecedores/salvar', (req, res) => { DB.fornecedores.push({ id: 
 
 // ===== FUNCIONÁRIOS =====
 app.get('/api/funcionarios', (req, res) => res.json({ funcionarios: (DB.funcionarios || []).map(f => ({ ...f, unidade_nome: ((DB.unidades || []).find(u => u.id === f.unidade_id) || {}).nome })) }));
-app.post('/api/funcionarios/salvar', (req, res) => { DB.funcionarios.push({ id: nextId('funcionarios'), ...req.body, status: 'ATIVO', data_admissao: hoje() }); saveDB(); res.json({ sucesso: true }); });
-
+app.post('/api/funcionarios/salvar', (req, res) => { DB.funcionarios.push({ id: nextId('funcionarios'), ...req.body, status: 'ATIVO', data_admissao: hoje() }); saveDB(); res.json({ sucesso: true }); }) 'almoxarifado': renderAlmoxarifado,
+'permissoes': renderPermissoes;
 // ===== PATRIMÔNIO =====
 app.get('/api/patrimonio', (req, res) => res.json({ bens: (DB.patrimonio || []).map(p => ({ ...p, unidade_nome: ((DB.unidades || []).find(u => u.id === p.localizacao_unidade_id) || {}).nome })) }));
 app.post('/api/patrimonio/salvar', (req, res) => {
@@ -1219,3 +1219,206 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', sistema: DB.contro
     console.log('   Bot webhook: POST /api/bot/webhook');
   });
 })();
+// ==========================================
+// 📦 ALMOXARIFADO
+// ==========================================
+function renderAlmoxarifado() {
+  const nivel = usuarioLogado?.nivel_permissao || 1;
+  if (nivel < 2) return renderAcessoNegado();
+
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">📦 Almoxarifado</h2>
+        <p class="text-slate-500">Controle de materiais, insumos e consumo</p>
+      </div>
+      ${nivel >= 2 ? `<button onclick="modalEntradaAlmox()" class="bg-green-600 text-white px-4 py-2 rounded-lg">+ Entrada</button>
+      <button onclick="modalSaidaAlmox()" class="bg-amber-500 text-white px-4 py-2 rounded-lg">− Saída</button>` : ''}
+    </div>
+
+    <!-- Saldo -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200">
+      <h3 class="font-bold text-lg mb-4">Estoque Atual</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-50">
+              <th class="text-left p-3">Item</th>
+              <th class="text-left p-3">Unidade</th>
+              <th class="text-center p-3">Saldo</th>
+              <th class="text-right p-3">Valor Unit.</th>
+              <th class="text-right p-3">Valor Total</th>
+              <th class="text-center p-3">Status</th>
+            </tr>
+          </thead>
+          <tbody id="tabelaAlmox">
+            <tr>
+              <td class="p-3">Embalagem de picolé</td>
+              <td class="p-3">pacote</td>
+              <td class="p-3 text-center font-bold">120</td>
+              <td class="p-3 text-right">R$ 4,50</td>
+              <td class="p-3 text-right font-bold">R$ 540,00</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">Normal</span></td>
+            </tr>
+            <tr>
+              <td class="p-3">Luva descartável</td>
+              <td class="p-3">caixa</td>
+              <td class="p-3 text-center font-bold">5</td>
+              <td class="p-3 text-right">R$ 18,00</td>
+              <td class="p-3 text-right font-bold">R$ 90,00</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs">Atenção</span></td>
+            </tr>
+            <tr>
+              <td class="p-3">Detergente</td>
+              <td class="p-3">frasco</td>
+              <td class="p-3 text-center font-bold">2</td>
+              <td class="p-3 text-right">R$ 5,00</td>
+              <td class="p-3 text-right font-bold">R$ 10,00</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs">Baixo</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Últimas Movimentações -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200">
+      <h3 class="font-bold text-lg mb-4">Últimas Movimentações</h3>
+      <div class="space-y-3 text-sm">
+        <div class="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+          <div><span class="font-medium">Entrada</span> — Embalagem picolé (50 pacotes)</div>
+          <div class="text-slate-500">21/10/2026 08:32</div>
+          <div class="text-slate-600">João — Produção</div>
+        </div>
+        <div class="flex justify-between items-center p-3 bg-amber-50 rounded-lg">
+          <div><span class="font-medium">Saída</span> — Luva descartável (2 caixas)</div>
+          <div class="text-slate-500">20/10/2026 14:15</div>
+          <div class="text-slate-600">Maria — Vendas</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+// ==========================================
+// 🔐 CADASTRO DE FUNÇÕES E PERMISSÕES
+// ==========================================
+function renderPermissoes() {
+  const nivel = usuarioLogado?.nivel_permissao || 1;
+  if (nivel < 6) return renderAcessoNegado();
+
+  const niveis = [
+    { id: 1, nome: 'Apenas Ponto', desc: 'Só registra e consulta ponto', cor: 'slate' },
+    { id: 2, nome: 'Produção', desc: 'Ponto + Produção + Almoxarifado', cor: 'blue' },
+    { id: 3, nome: 'Vendas', desc: 'PDV + Comandas + Estoque', cor: 'cyan' },
+    { id: 4, nome: 'Supervisor', desc: 'Fechamento + Relatórios', cor: 'amber' },
+    { id: 5, nome: 'Gerente', desc: 'Financeiro + RH + Remessas', cor: 'orange' },
+    { id: 6, nome: 'Administrador Total', desc: 'Acesso completo + gestão de permissões', cor: 'red' }
+  ];
+
+  return `
+  <div class="space-y-6">
+    <div>
+      <h2 class="text-2xl font-bold text-slate-800">🔐 Funções e Permissões</h2>
+      <p class="text-slate-500">Defina o nível de acesso de cada colaborador</p>
+    </div>
+
+    <!-- Tabela de Funcionários com Permissão -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200">
+      <h3 class="font-bold text-lg mb-4">Equipe e Níveis de Acesso</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-50">
+              <th class="text-left p-3">Matrícula</th>
+              <th class="text-left p-3">Nome</th>
+              <th class="text-left p-3">Cargo</th>
+              <th class="text-left p-3">Nível Atual</th>
+              <th class="text-center p-3">Alterar para</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="p-3">SV-001</td>
+              <td class="p-3 font-medium">Leandro Canuto</td>
+              <td class="p-3">Dono/Admin</td>
+              <td class="p-3"><span class="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">Nível 6 — Total</span></td>
+              <td class="p-3 text-center">—</td>
+            </tr>
+            <tr>
+              <td class="p-3">SV-002</td>
+              <td class="p-3 font-medium">Maria Silva</td>
+              <td class="p-3">Caixa</td>
+              <td class="p-3"><span class="px-2 py-1 bg-cyan-100 text-cyan-700 rounded-full text-xs">Nível 3 — Vendas</span></td>
+              <td class="p-3 text-center">
+                <select class="border rounded-lg px-2 py-1 text-xs" onchange="alterarPermissao('SV-002', this.value)">
+                  ${niveis.map(n=>`<option value="${n.id}" ${n.id===3?'selected':''}>${n.id} — ${n.nome}</option>`).join('')}
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="p-3">SV-003</td>
+              <td class="p-3 font-medium">João Pereira</td>
+              <td class="p-3">Produção</td>
+              <td class="p-3"><span class="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">Nível 2 — Produção</span></td>
+              <td class="p-3 text-center">
+                <select class="border rounded-lg px-2 py-1 text-xs" onchange="alterarPermissao('SV-003', this.value)">
+                  ${niveis.map(n=>`<option value="${n.id}" ${n.id===2?'selected':''}>${n.id} — ${n.nome}</option>`).join('')}
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td class="p-3">SV-004</td>
+              <td class="p-3 font-medium">Ana Costa</td>
+              <td class="p-3">Atendente</td>
+              <td class="p-3"><span class="px-2 py-1 bg-slate-100 text-slate-700 rounded-full text-xs">Nível 1 — Apenas Ponto</span></td>
+              <td class="p-3 text-center">
+                <select class="border rounded-lg px-2 py-1 text-xs" onchange="alterarPermissao('SV-004', this.value)">
+                  ${niveis.map(n=>`<option value="${n.id}" ${n.id===1?'selected':''}>${n.id} — ${n.nome}</option>`).join('')}
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Guia de Níveis -->
+    <div class="bg-white rounded-2xl p-6 border border-slate-200">
+      <h3 class="font-bold text-lg mb-4">📋 Guia de Permissões</h3>
+      <div class="grid md:grid-cols-2 gap-4 text-sm">
+        ${niveis.map(n=>`
+        <div class="p-4 border border-slate-100 rounded-xl bg-${n.cor}-50/50">
+          <div class="font-bold text-${n.cor}-700 mb-1">Nível ${n.id} — ${n.nome}</div>
+          <p class="text-slate-600">${n.desc}</p>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function renderAcessoNegado() {
+  return `
+  <div class="flex flex-col items-center justify-center py-20">
+    <div class="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center mb-4">
+      <svg class="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m0-7h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+    </div>
+    <h2 class="text-xl font-bold text-slate-800 mb-2">Acesso Negado</h2>
+    <p class="text-slate-500 mb-6">Seu nível de permissão não autoriza esta área.</p>
+    <button onclick="navegar('dashboard')" class="bg-cyan-600 text-white px-4 py-2 rounded-lg">Voltar ao Início</button>
+  </div>
+  `;
+}
+
+// Função para alterar permissão
+async function alterarPermissao(matricula, nivel) {
+  if (!confirm(`Alterar permissão de ${matricula} para Nível ${nivel}?`)) return;
+  // Aqui conecta com a API para salvar
+  alert(`✅ Permissão alterada para Nível ${nivel}!`);
+  navegar('permissoes');
+}
