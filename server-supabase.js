@@ -1336,6 +1336,50 @@ app.post('/api/checklist/finalizar', (req, res) => {
   res.json({ sucesso: true, mensagem: 'Checklist finalizado e APROVADO por ' + adm.nome + '! Protocolo: ' + chk.protocolo });
 });
 
+// ===== UNIDADES (MATRIZ / FILIAL) — CRUD completo com nível de permissão =====
+app.get('/api/unidades', (req, res) => {
+  const unidades = (DB.unidades || []).map(u => ({
+    ...u,
+    nivel_permissao_label: ['', 'Apenas Ponto', 'Produção', 'Vendas', 'Supervisor', 'Gerente', 'Admin Total'][u.nivel_permissao || 1]
+  }));
+  res.json({ unidades });
+});
+app.post('/api/unidades/salvar', (req, res) => {
+  DB.unidades = DB.unidades || [];
+  const { id } = req.body;
+  if (id) {
+    const u = DB.unidades.find(x => x.id == id);
+    if (u) Object.assign(u, req.body);
+    else return res.json({ erro: 'Unidade não encontrada' });
+  } else {
+    DB.unidades.push({ id: nextId('unidades'), ...req.body, criado_em: agora() });
+  }
+  saveDB();
+  res.json({ sucesso: true });
+});
+app.post('/api/unidades/excluir', (req, res) => {
+  const u = (DB.unidades || []).find(x => x.id == req.body.id);
+  if (u && u.tipo === 'matriz') return res.json({ erro: 'Não é possível excluir a Matriz!' });
+  DB.unidades = (DB.unidades || []).filter(x => x.id != req.body.id);
+  saveDB();
+  res.json({ sucesso: true });
+});
+
+// ===== PERMISSÃO DE FUNCIONÁRIOS — aumentar/alterar nível =====
+app.post('/api/funcionarios/permissao', (req, res) => {
+  const { funcionario_id, nivel_permissao, senha_adm } = req.body;
+  if (!senha_adm) return res.json({ erro: 'Alterar permissão exige senha do administrador' });
+  const adm = (DB.funcionarios || []).find(f => f.senha_hash === senha_adm && f.role === 'admin');
+  if (!adm) return res.json({ erro: 'Senha do administrador inválida' });
+  const f = (DB.funcionarios || []).find(x => x.id == funcionario_id);
+  if (!f) return res.json({ erro: 'Funcionário não encontrado' });
+  f.nivel_permissao = Number(nivel_permissao);
+  f.permissao_alterada_por = adm.nome;
+  f.permissao_alterada_em = agora();
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Permissão de ' + f.nome + ' alterada para Nível ' + nivel_permissao + ' (' + ['', 'Apenas Ponto', 'Produção', 'Vendas', 'Supervisor', 'Gerente', 'Admin Total'][nivel_permissao] + ')' });
+});
+
 // ===== HEALTH CHECK =====
 app.get('/api/health', (req, res) => res.json({ status: 'ok', sistema: DB.controle_sistema?.status_geral, banco: USAR_SUPABASE ? 'supabase' : 'local', hora: agora() }));
 
