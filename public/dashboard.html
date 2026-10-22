@@ -186,6 +186,8 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px}
         <div class="menu-item" data-view="crm" onclick="showView('crm')"><i data-lucide="phone-call"></i> CRM / Contatos</div>
         <div class="menu-item" data-view="fornecedores" onclick="showView('fornecedores')"><i data-lucide="truck"></i> Fornecedores</div>
         <div class="menu-item" data-view="funcionarios" onclick="showView('funcionarios')"><i data-lucide="user-cog"></i> Funcionários</div>
+        <div class="menu-item" data-view="unidades" onclick="showView('unidades')"><i data-lucide="building-2"></i> Unidades (Matriz/Filial)</div>
+        <div class="menu-item" data-view="permissoes" onclick="showView('permissoes')"><i data-lucide="shield-check"></i> Permissões de Acesso</div>
         <div class="menu-item" data-view="patrimonio" onclick="showView('patrimonio')"><i data-lucide="armchair"></i> Patrimônio</div>
         <div class="menu-item" data-view="imoveis" onclick="showView('imoveis')"><i data-lucide="building-2"></i> Imóveis / Aluguel</div>
       </div>
@@ -356,7 +358,7 @@ function showView(view){
   const renderers = {
     dashboard: renderDashboard, 'controle-matriz': renderControleMatriz, caixa: renderCaixa,
     'pdv-emergencial': renderPdvEmergencial, produtos: renderProdutos, clientes: renderClientes,
-    fornecedores: renderFornecedores, funcionarios: renderFuncionarios, patrimonio: renderPatrimonio,
+    fornecedores: renderFornecedores, funcionarios: renderFuncionarios, patrimonio: renderPatrimonio, unidades: renderUnidades, permissoes: renderPermissoes,
     imoveis: renderImoveis, 'fichas-tecnicas': renderFichasTecnicas, 'ordens-servico': renderOrdensServico,
     producao: renderProducao, vendas: renderVendas, comandas: renderComandas,
     'pedidos-site': renderPedidosSite, eventos: renderEventos, estoque: renderEstoque,
@@ -2579,10 +2581,128 @@ async function cancelarNF(nfId){
   else toast(r.erro||'Erro','error');
 }
 
+// ===== UNIDADES (MATRIZ / FILIAL) — CRUD completo =====
+const NIVEIS_PERMISSAO = [
+  { id: 1, nome: 'Apenas Ponto', cor: '#64748b' },
+  { id: 2, nome: 'Produção', cor: '#2563eb' },
+  { id: 3, nome: 'Vendas', cor: '#0891b2' },
+  { id: 4, nome: 'Supervisor', cor: '#d97706' },
+  { id: 5, nome: 'Gerente', cor: '#ea580c' },
+  { id: 6, nome: 'Admin Total', cor: '#dc2626' }
+];
+async function renderUnidades(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Unidades (Matriz / Filial)</h1><p class="page-sub">Cadastre, edite e exclua unidades. Cada unidade tem seu nível de permissão.</p>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="modalUnidade()"><i data-lucide="plus"></i> Nova Unidade</button></div>
+    <div class="card" id="unidadesLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/unidades');
+    const u = r.unidades || [];
+    document.getElementById('unidadesLista').innerHTML = u.map(x=>{
+      const nv = NIVEIS_PERMISSAO.find(n=>n.id===(x.nivel_permissao||1)) || NIVEIS_PERMISSAO[0];
+      return `<div style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div><b>${x.nome}</b> <span class="badge" style="background:${x.tipo==='matriz'?'#dc262622':'#0891b222'};color:${x.tipo==='matriz'?'#dc2626':'#0891b2'}">${x.tipo==='matriz'?'MATRIZ':'FILIAL'}</span></div>
+          <span class="badge" style="background:${nv.cor}22;color:${nv.cor}">Nível ${nv.id} — ${nv.nome}</span>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:6px 0">${x.endereco||'Sem endereço'} | ${x.cidade||''} | Tel: ${x.telefone||'—'}</p>
+        <p style="font-size:12px;color:var(--muted)">Responsável: ${x.responsavel||'—'} | CNPJ: ${x.cnpj||'—'}</p>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-sm btn-secondary" onclick="modalUnidade(${x.id})"><i data-lucide="edit"></i> Editar</button>
+          <button class="btn btn-sm btn-secondary" onclick="aumentarNivelUnidade(${x.id}, ${x.nivel_permissao||1}, '${x.nome}')"><i data-lucide="arrow-up-circle"></i> Aumentar Nível</button>
+          ${x.tipo!=='matriz'?`<button class="btn btn-sm btn-secondary" style="color:#dc2626" onclick="excluirUnidade(${x.id}, '${x.nome}')"><i data-lucide="trash-2"></i> Excluir</button>`:''}
+        </div>
+      </div>`;
+    }).join('') || '<div class="empty-state"><i data-lucide="building-2"></i><p>Nenhuma unidade cadastrada. Clique em "Nova Unidade".</p></div>';
+    lucide.createIcons();
+  } catch(e) { document.getElementById('unidadesLista').innerHTML = '<p style="color:var(--muted)">Erro ao carregar.</p>'; }
+}
+function modalUnidade(id){
+  const editar = id ? true : false;
+  document.getElementById('modalContainer').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)this.remove()"><div class="modal"><h3><i data-lucide="building-2"></i> ${editar?'Editar':'Nova'} Unidade</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Nome da Unidade</label><input id="unNome" placeholder="Ex: Sorveteria Centro"></div>
+      <div class="form-group"><label>Tipo</label><select id="unTipo"><option value="filial">Filial</option><option value="matriz">Matriz</option></select></div>
+      <div class="form-group"><label>CNPJ</label><input id="unCnpj" placeholder="00.000.000/0000-00"></div>
+      <div class="form-group"><label>Responsável</label><input id="unResp" placeholder="Nome do gerente"></div>
+      <div class="form-group" style="grid-column:1/-1"><label>Endereço</label><input id="unEnd" placeholder="Rua, número, bairro"></div>
+      <div class="form-group"><label>Cidade</label><input id="unCid" placeholder="Cidade - UF"></div>
+      <div class="form-group"><label>Telefone</label><input id="unTel" placeholder="(41) 99999-9999"></div>
+      <div class="form-group"><label>Nível de Permissão da Unidade</label><select id="unNivel">${NIVEIS_PERMISSAO.map(n=>`<option value="${n.id}">${n.id} — ${n.nome}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-actions"><button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvarUnidade(${id||'null'})"><i data-lucide="save"></i> Salvar</button></div></div></div>`;
+  lucide.createIcons();
+}
+async function salvarUnidade(id){
+  const r = await apiPOST('/api/unidades/salvar', {...userPayload(), id, nome:document.getElementById('unNome').value, tipo:document.getElementById('unTipo').value, cnpj:document.getElementById('unCnpj').value, responsavel:document.getElementById('unResp').value, endereco:document.getElementById('unEnd').value, cidade:document.getElementById('unCid').value, telefone:document.getElementById('unTel').value, nivel_permissao:Number(document.getElementById('unNivel').value)});
+  if(r.sucesso){ toast('Unidade salva!'); document.querySelector('.modal-overlay').remove(); renderUnidades(); } else toast(r.erro||'Erro','error');
+}
+async function aumentarNivelUnidade(id, nivelAtual, nome){
+  const proximo = Math.min(6, nivelAtual + 1);
+  if(!confirm(`Aumentar nível de permissão de "${nome}" de Nível ${nivelAtual} para Nível ${proximo} (${NIVEIS_PERMISSAO[proximo-1].nome})?`)) return;
+  const r = await apiPOST('/api/unidades/salvar', {...userPayload(), id, nivel_permissao: proximo});
+  if(r.sucesso){ toast('Nível aumentado para '+proximo+'!'); renderUnidades(); } else toast(r.erro||'Erro','error');
+}
+async function excluirUnidade(id, nome){
+  if(!confirm('Excluir a unidade "'+nome+'"? Esta ação não pode ser desfeita.')) return;
+  const r = await apiPOST('/api/unidades/excluir', {...userPayload(), id});
+  if(r.sucesso){ toast('Unidade excluída.'); renderUnidades(); } else toast(r.erro||'Erro','error');
+}
+
+// ===== PERMISSÕES DE ACESSO — aumentar nível de cada funcionário =====
+async function renderPermissoes(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Permissões de Acesso</h1><p class="page-sub">Aumente ou altere o nível de permissão de cada funcionário. Exige senha do administrador.</p>
+    <div class="card" style="margin-bottom:16px"><div class="card-title"><i data-lucide="info"></i> Níveis de Permissão</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        ${NIVEIS_PERMISSAO.map(n=>`<span class="badge" style="background:${n.cor}22;color:${n.cor};padding:6px 10px">${n.id} — ${n.nome}</span>`).join('')}
+      </div>
+    </div>
+    <div class="card" id="permissoesLista"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando funcionários...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/funcionarios');
+    const f = r.funcionarios || [];
+    document.getElementById('permissoesLista').innerHTML = f.map(x=>{
+      const nv = NIVEIS_PERMISSAO.find(n=>n.id===(x.nivel_permissao||1)) || NIVEIS_PERMISSAO[0];
+      return `<div style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div><b>${x.nome}</b> <span style="font-size:12px;color:var(--muted)">${x.matricula||''} — ${x.cargo||''}</span></div>
+          <span class="badge" style="background:${nv.cor}22;color:${nv.cor}">Nível ${nv.id} — ${nv.nome}</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:13px">Alterar para:</label>
+          <select id="nivelFunc${x.id}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            ${NIVEIS_PERMISSAO.map(n=>`<option value="${n.id}" ${n.id===(x.nivel_permissao||1)?'selected':''}>${n.id} — ${n.nome}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="alterarPermissaoFunc(${x.id}, '${x.nome}')"><i data-lucide="shield-check"></i> Aplicar (senha ADM)</button>
+          ${(x.nivel_permissao||1) < 6 ? `<button class="btn btn-sm btn-secondary" onclick="aumentarPermissaoFunc(${x.id}, ${x.nivel_permissao||1}, '${x.nome}')"><i data-lucide="arrow-up-circle"></i> Aumentar 1 Nível</button>` : ''}
+        </div>
+      </div>`;
+    }).join('') || '<div class="empty-state"><i data-lucide="users"></i><p>Nenhum funcionário cadastrado.</p></div>';
+    lucide.createIcons();
+  } catch(e) { document.getElementById('permissoesLista').innerHTML = '<p style="color:var(--muted)">Erro ao carregar.</p>'; }
+}
+async function alterarPermissaoFunc(id, nome){
+  const novoNivel = document.getElementById('nivelFunc'+id).value;
+  const senhaAdm = prompt('SENHA DO ADMINISTRADOR para alterar permissão de "'+nome+'" para Nível '+novoNivel+':');
+  if(!senhaAdm) return;
+  const r = await apiPOST('/api/funcionarios/permissao', {...userPayload(), funcionario_id:id, nivel_permissao:novoNivel, senha_adm:senhaAdm});
+  if(r.sucesso){ toast(r.mensagem,'success'); renderPermissoes(); } else toast(r.erro||'Erro','error');
+}
+async function aumentarPermissaoFunc(id, nivelAtual, nome){
+  const proximo = Math.min(6, nivelAtual + 1);
+  const senhaAdm = prompt('SENHA DO ADMINISTRADOR para aumentar permissão de "'+nome+'" de Nível '+nivelAtual+' para Nível '+proximo+':');
+  if(!senhaAdm) return;
+  const r = await apiPOST('/api/funcionarios/permissao', {...userPayload(), funcionario_id:id, nivel_permissao:proximo, senha_adm:senhaAdm});
+  if(r.sucesso){ toast(r.mensagem,'success'); renderPermissoes(); } else toast(r.erro||'Erro','error');
+}
+
 // ===== INIT =====
 if(currentUser) showView('dashboard');
 lucide.createIcons();
 </script>
 </body>
 </html>
-
