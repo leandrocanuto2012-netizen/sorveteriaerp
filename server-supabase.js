@@ -1380,6 +1380,111 @@ app.post('/api/funcionarios/permissao', (req, res) => {
   res.json({ sucesso: true, mensagem: 'Permissão de ' + f.nome + ' alterada para Nível ' + nivel_permissao + ' (' + ['', 'Apenas Ponto', 'Produção', 'Vendas', 'Supervisor', 'Gerente', 'Admin Total'][nivel_permissao] + ')' });
 });
 
+// ===== COMPRAS / PEDIDOS A FORNECEDORES =====
+app.get('/api/compras/lista', (req, res) => res.json({ compras: (DB.compras || []).slice(-50).reverse() }));
+app.post('/api/compras/criar', (req, res) => {
+  DB.compras = DB.compras || [];
+  const protocolo = 'CMP-' + hoje().replace(/-/g,'') + '-' + String(DB.compras.length+1).padStart(4,'0');
+  DB.compras.push({ id: nextId('compras'), protocolo, ...req.body, status: 'pendente', criado_em: agora() });
+  saveDB();
+  res.json({ sucesso: true, protocolo });
+});
+app.post('/api/compras/receber', (req, res) => {
+  const c = (DB.compras || []).find(x => x.id == req.body.compra_id);
+  if (!c) return res.json({ erro: 'Compra não encontrada' });
+  c.status = 'recebida'; c.recebido_em = agora(); c.observacao_recebimento = req.body.observacao || '';
+  (c.itens || []).forEach(i => {
+    DB.estoque = DB.estoque || [];
+    let e = DB.estoque.find(x => x.produto_id == i.produto_id);
+    if (e) e.qty = Number(e.qty||0) + Number(i.qty||0);
+    else DB.estoque.push({ produto_id: i.produto_id, produto_nome: i.produto_nome, qty: Number(i.qty||0), valor_unitario: Number(i.valor_unitario||0), lote: 'CMP-'+c.id, validade: req.body.validade || null });
+  });
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Compra '+c.protocolo+' recebida! Estoque atualizado.' });
+});
+
+// ===== DEVOLUÇÕES DE VENDA =====
+app.get('/api/devolucoes/lista', (req, res) => res.json({ devolucoes: (DB.devolucoes || []).slice(-50).reverse() }));
+app.post('/api/devolucoes/registrar', (req, res) => {
+  DB.devolucoes = DB.devolucoes || [];
+  const protocolo = 'DEV-' + hoje().replace(/-/g,'') + '-' + String(DB.devolucoes.length+1).padStart(4,'0');
+  DB.devolucoes.push({ id: nextId('devolucoes'), protocolo, ...req.body, criado_em: agora() });
+  const venda = (DB.vendas || []).find(v => v.id == req.body.venda_id);
+  if (venda) {
+    (req.body.itens || []).forEach(i => {
+      DB.estoque = DB.estoque || [];
+      let e = DB.estoque.find(x => x.produto_id == i.produto_id);
+      if (e) e.qty = Number(e.qty||0) + Number(i.qty_devolvido||0);
+    });
+  }
+  saveDB();
+  res.json({ sucesso: true, protocolo, mensagem: 'Devolução registrada! Estoque estornado.' });
+});
+
+// ===== CONCILIAÇÃO BANCÁRIA =====
+app.get('/api/banco/extrato/lista', (req, res) => res.json({ extrato: (DB.bank_statement || []).slice(-100).reverse() }));
+app.post('/api/banco/extrato/importar', (req, res) => {
+  DB.bank_statement = DB.bank_statement || [];
+  const linhas = req.body.linhas || [];
+  linhas.forEach(l => DB.bank_statement.push({ id: nextId('bank'), ...l, conciliado: false, importado_em: agora() }));
+  saveDB();
+  res.json({ sucesso: true, importadas: linhas.length });
+});
+app.post('/api/banco/conciliar', (req, res) => {
+  const l = (DB.bank_statement || []).find(x => x.id == req.body.linha_id);
+  if (!l) return res.json({ erro: 'Linha não encontrada' });
+  l.conciliado = true; l.conciliado_em = agora(); l.conta_correspondente = req.body.conta_id || null;
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Linha conciliada!' });
+});
+
+// ===== FLUXO DE CAIXA FUTURO =====
+app.get('/api/financeiro/fluxo-futuro', (req, res) => {
+  const dias = Number(req.query.dias || 30);
+  const hojeStr = hoje();
+  const aReceber = (DB.contas || []).filter(c => c.tipo === 'receber' && c.status === 'ABERTO' && c.vencimento >= hojeStr);
+  const aPagar = (DB.contas || []).filter(c => c.tipo === 'pagar' && c.status === 'ABERTO' && c.vencimento >= hojeStr);
+  const projecao = [];
+  for (let d = 0; d < dias; d++) {
+    const data = new Date(); data.setDate(data.getDate() + d);
+    const ds = data.toISOString().slice(0,10);
+    const receber = aReceber.filter(c => c.vencimento === ds).reduce((s,c)=>s+Number(c.valor||0),0);
+    const pagar = aPagar.filter(c => c.vencimento === ds).reduce((s,c)=>s+Number(c.valor||0),0);
+    projecao.push({ data: ds, receber, pagar, saldo_projetado: receber - pagar });
+  }
+  res.json({ projecao, total_receber: aReceber.reduce((s,c)=>s+Number(c.valor||0),0), total_pagar: aPagar.reduce((s,c)=>s+Number(c.valor||0),0) });
+});
+
+// ===== AJUSTE DE ESTOQUE =====
+app.post('/api/estoque/ajuste', (req, res) => {
+  DB.estoque_ajustes = DB.estoque_ajustes || [];
+  DB.estoque_ajustes.push({ id: nextId('ajustes'), ...req.body, criado_em: agora() });
+  DB.estoque = DB.estoque || [];
+  let e = DB.estoque.find(x => x.produto_id == req.body.produto_id);
+  if (e) {
+    e.qty = req.body.tipo === 'entrada' ? Number(e.qty||0) + Number(req.body.qty||0) : Number(e.qty||0) - Number(req.body.qty||0);
+    e.ultimo_ajuste = agora();
+  }
+  saveDB();
+  res.json({ sucesso: true, mensagem: 'Ajuste de estoque realizado!' });
+});
+
+// ===== LOG DE AUDITORIA =====
+app.get('/api/auditoria/lista', (req, res) => res.json({ logs: (DB.audit_log || []).slice(-200).reverse() }));
+function registrarAuditoria(acao, detalhes, usuario_id) {
+  DB.audit_log = DB.audit_log || [];
+  DB.audit_log.push({ id: nextId('audit'), acao, detalhes, usuario_id, data: agora() });
+}
+
+// ===== MANUTENÇÃO DE FROTA =====
+app.get('/api/frota/manutencoes', (req, res) => res.json({ manutencoes: (DB.frota_manutencao || []).slice(-50).reverse() }));
+app.post('/api/frota/manutencao/registrar', (req, res) => {
+  DB.frota_manutencao = DB.frota_manutencao || [];
+  DB.frota_manutencao.push({ id: nextId('manutencao'), ...req.body, status: req.body.status || 'concluida', criado_em: agora() });
+  saveDB();
+  res.json({ sucesso: true });
+});
+
 // ===== HEALTH CHECK =====
 app.get('/api/health', (req, res) => res.json({ status: 'ok', sistema: DB.controle_sistema?.status_geral, banco: USAR_SUPABASE ? 'supabase' : 'local', hora: agora() }));
 
