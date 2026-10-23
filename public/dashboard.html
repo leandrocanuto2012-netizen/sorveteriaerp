@@ -372,7 +372,8 @@ function showView(view){
     ponto: renderPonto, ferias: renderFerias, holerites: renderHolerites, rescisao: renderRescisao,
     'documentos-rh': renderDocumentosRH, logistica: renderLogistica, checklists: renderChecklists, chamados: renderChamados, 'protocolo-entregas': renderProtocoloEntregas,
     'bot-config': renderBotConfig, gerente: renderGerente, 'ia-vendas': renderIAVendas,
-    crm: renderCRM, boletos: renderBoletos, ifood: renderIfood, integracoes: renderIntegracoes, metas: renderMetas, 'meta-ia': renderMetaIA
+    crm: renderCRM, boletos: renderBoletos, ifood: renderIfood, integracoes: renderIntegracoes, metas: renderMetas, 'meta-ia': renderMetaIA,'funcionarios_completo': renderFuncionariosCompleto,
+  'folha_pagamento': renderFolhaPagamento, 'treinamentos_viagens': renderTreinamentosViagens, 'crm_leads': renderCrmLeads, 'suporte_tecnico': renderSuporteTecnico, 'lgpd_aceite': renderLgpdAceite
   };
   (renderers[view] || renderDashboard)();
   lucide.createIcons();
@@ -2803,6 +2804,459 @@ async function renderAuditoria(){
     lucide.createIcons();
   } catch(e){ document.getElementById('audLista').innerHTML='<p style="color:var(--muted)">Erro.</p>'; }
 }
+  // ==========================================
+// 👤 FUNCIONÁRIOS COMPLETOS
+// ==========================================
+function renderFuncionariosCompleto() {
+  const nivel = usuarioLogado?.nivel_permissao || 1;
+  const podeDadosSensiveis = nivel >= 5;
+  const podeEditar = nivel >= 6;
+
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">👤 Cadastro Completo de Funcionários</h2>
+        <p class="text-slate-500">Dados pessoais, foto e informações sensíveis</p>
+      </div>
+      ${podeEditar ? `<button onclick="modalNovoFuncionario()" class="bg-green-600 text-white px-4 py-2 rounded-lg">+ Novo Funcionário</button>` : ''}
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 border border-slate-200">
+      <h3 class="font-bold text-lg mb-4">Lista de Funcionários</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-50">
+              <th class="text-left p-3">Foto</th>
+              <th class="text-left p-3">Nome</th>
+              <th class="text-left p-3">Matrícula</th>
+              <th class="text-left p-3">Cargo</th>
+              <th class="text-left p-3">Nível</th>
+              <th class="text-center p-3">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-funcionarios">
+            <tr>
+              <td class="p-3"><div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">👤</div></td>
+              <td class="p-3 font-medium">Administrador Geral</td>
+              <td class="p-3">SV-2026-0001</td>
+              <td class="p-3">Administrador</td>
+              <td class="p-3"><span class="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">Nível 6</span></td>
+              <td class="p-3 text-center">
+                <button onclick="modalEditarFuncionario(1)" class="text-blue-600 hover:underline">Editar</button>
+                ${podeDadosSensiveis ? `<button onclick="modalDadosSensiveis(1)" class="ml-2 text-amber-600 hover:underline">Sigilo</button>` : ''}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    ${podeDadosSensiveis ? `
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+      <h4 class="font-bold text-amber-800 mb-2">🔒 Área de Dados Sensíveis</h4>
+      <p class="text-amber-700 text-sm">Acesso liberado apenas para níveis 5 e 6 — dados bancários, dependentes, contratos.</p>
+    </div>` : `
+    <div class="bg-slate-50 rounded-xl p-4 text-center text-slate-500">
+      🔒 Dados sensíveis disponíveis apenas para Gerente e Administrador
+    </div>`}
+  </div>
+  `;
+}
+
+// ==========================================
+// 💰 FOLHA DE PAGAMENTO
+// ==========================================
+function renderFolhaPagamento() {
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">💰 Folha de Pagamento</h2>
+        <p class="text-slate-500">Gerar, conferir e comparar folhas</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="modalGerarFolha()" class="bg-green-600 text-white px-4 py-2 rounded-lg">+ Gerar Folha</button>
+        <button onclick="navegar('descontos_parceiros')" class="bg-slate-600 text-white px-4 py-2 rounded-lg">Parceiros/Descontos</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4">
+      <div class="bg-white rounded-xl p-5 border">
+        <h4 class="text-slate-500 text-sm">Competência</h4>
+        <p class="text-xl font-bold">Out/2026</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 border">
+        <h4 class="text-slate-500 text-sm">Total Proventos</h4>
+        <p class="text-xl font-bold text-green-600">R$ 28.450,00</p>
+      </div>
+      <div class="bg-white rounded-xl p-5 border">
+        <h4 class="text-slate-500 text-sm">Líquido a Pagar</h4>
+        <p class="text-xl font-bold text-blue-600">R$ 21.320,50</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 border">
+      <h3 class="font-bold text-lg mb-4">Resumo da Folha</h3>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <h4 class="font-semibold text-green-700 mb-3">📈 Proventos</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span>Salário Base</span><span>R$ 18.500,00</span></div>
+            <div class="flex justify-between"><span>Horas Extras</span><span>R$ 2.100,00</span></div>
+            <div class="flex justify-between"><span>Adicional Noturno</span><span>R$ 850,00</span></div>
+            <div class="flex justify-between font-bold border-t pt-2">Total<span>R$ 28.450,00</span></div>
+          </div>
+        </div>
+        <div>
+          <h4 class="font-semibold text-red-700 mb-3">📉 Descontos</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span>INSS</span><span>R$ 2.276,00</span></div>
+            <div class="flex justify-between"><span>IRRF</span><span>R$ 985,50</span></div>
+            <div class="flex justify-between"><span>FGTS</span><span>R$ 2.276,00</span></div>
+            <div class="flex justify-between"><span>VR / VA</span><span>R$ 1.120,00</span></div>
+            <div class="flex justify-between"><span>Combustível</span><span>R$ 472,00</span></div>
+            <div class="flex justify-between font-bold border-t pt-2">Total<span>R$ 7.129,50</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <button onclick="conferirFolha()" class="bg-blue-600 text-white px-4 py-2 rounded-lg">✓ Conferir Folha</button>
+      <button onclick="modalCompararFolha()" class="bg-purple-600 text-white px-4 py-2 rounded-lg">📊 Comparar c/ Mês Anterior</button>
+      <button onclick="exportarFolha()" class="bg-slate-600 text-white px-4 py-2 rounded-lg">📄 Exportar</button>
+    </div>
+  </div>
+  `;
+}
+
+// ==========================================
+// 📞 CRM / LEADS
+// ==========================================
+function renderCrmLeads() {
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">📞 CRM — Gestão de Leads</h2>
+        <p class="text-slate-500">Acompanhamento de prospects e distribuição inteligente</p>
+      </div>
+      <button onclick="modalNovoLead()" class="bg-green-600 text-white px-4 py-2 rounded-lg">+ Novo Lead</button>
+    </div>
+
+    <div class="grid grid-cols-4 gap-4">
+      <div class="bg-slate-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold">24</p>
+        <p class="text-sm text-slate-500">Leads Novos</p>
+      </div>
+      <div class="bg-amber-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold">8</p>
+        <p class="text-sm text-amber-600">Aguardando Atendimento</p>
+      </div>
+      <div class="bg-green-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold">12</p>
+        <p class="text-sm text-green-600">Convertidos</p>
+      </div>
+      <div class="bg-red-50 rounded-xl p-4 text-center">
+        <p class="text-2xl font-bold">3</p>
+        <p class="text-sm text-red-600">Expirados</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 border">
+      <h3 class="font-bold text-lg mb-4">👥 Painel de Vendedores</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-50">
+              <th class="text-left p-3">Vendedor</th>
+              <th class="text-center p-3">Status</th>
+              <th class="text-center p-3">Metas</th>
+              <th class="text-center p-3">Atendimentos</th>
+              <th class="text-center p-3">Conversão</th>
+              <th class="text-center p-3">Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="p-3 font-medium">Maria Silva</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">✅ Disponível</span></td>
+              <td class="p-3 text-center"><span class="text-green-600 font-bold">102%</span></td>
+              <td class="p-3 text-center">18</td>
+              <td class="p-3 text-center">67%</td>
+              <td class="p-3 text-center"><button onclick="encaminharPara(2)" class="text-blue-600 hover:underline">Encaminhar</button></td>
+            </tr>
+            <tr>
+              <td class="p-3 font-medium">João Pereira</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs">⏳ Ocupado</span></td>
+              <td class="p-3 text-center"><span class="text-red-600 font-bold">58%</span></td>
+              <td class="p-3 text-center">5</td>
+              <td class="p-3 text-center">20%</td>
+              <td class="p-3 text-center"><button class="text-slate-400 cursor-not-allowed">Indisponível</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 border">
+      <h3 class="font-bold text-lg mb-4">📋 Leads e Tempo de Resposta</h3>
+      <div class="space-y-3">
+        <div class="p-3 border rounded-lg flex justify-between items-center">
+          <div>
+            <p class="font-medium">Cliente — Festa de Aniversário</p>
+            <p class="text-sm text-slate-500">Telefone: (41) 99999-1234 | Expira em: <span class="text-amber-600 font-bold">02h 15min</span></p>
+          </div>
+          <button onclick="iniciarAtendimento(101)" class="bg-green-600 text-white px-3 py-1 rounded-lg text-sm">Atender Agora</button>
+        </div>
+        <div class="p-3 border border-red-200 bg-red-50 rounded-lg flex justify-between items-center">
+          <div>
+            <p class="font-medium text-red-700">Empresa XYZ — Evento Corporativo</p>
+            <p class="text-sm text-red-500">⚠️ SEM CONTATO EM 24h — Expirado e redistribuído</p>
+          </div>
+          <span class="text-red-600 text-sm font-medium">Não Conforme</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+// ==========================================
+// 📚 TREINAMENTOS & VIAGENS
+// ==========================================
+function renderTreinamentosViagens() {
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">📚 Treinamentos, Cursos & Viagens</h2>
+        <p class="text-slate-500">Capacitação e viagens a serviço</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="modalNovoTreinamento()" class="bg-blue-600 text-white px-4 py-2 rounded-lg">+ Novo Treinamento</button>
+        <button onclick="modalNovaViagem()" class="bg-green-600 text-white px-4 py-2 rounded-lg">+ Nova Viagem</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-6">
+      <div class="bg-white rounded-2xl p-6 border">
+        <h3 class="font-bold text-lg mb-4">📖 Treinamentos</h3>
+        <div class="space-y-3">
+          <div class="p-3 border rounded-lg">
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-medium">Boas Práticas de Fabricação — ANVISA</span>
+              <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">Concluído</span>
+            </div>
+            <p class="text-sm text-slate-500">Carga horária: 8h | 12 participantes</p>
+            <p class="text-sm text-slate-400">Concluído em: 15/10/2026</p>
+          </div>
+          <div class="p-3 border rounded-lg">
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-medium">Atendimento e Vendas</span>
+              <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs">Em Andamento</span>
+            </div>
+            <p class="text-sm text-slate-500">Carga horária: 12h | 8 participantes</p>
+            <p class="text-sm text-slate-400">Próxima aula: 25/10/2026</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-6 border">
+        <h3 class="font-bold text-lg mb-4">✈️ Viagens a Serviço</h3>
+        <div class="space-y-3">
+          <div class="p-3 border rounded-lg">
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-medium">Visita Técnica — Fornecedor de Insumos</span>
+              <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-xs">Concluída</span>
+            </div>
+            <p class="text-sm text-slate-500">Destino: São Paulo/SP | 18/09 → 20/09</p>
+            <p class="text-sm text-green-600">Relatório entregue ✅</p>
+          </div>
+          <div class="p-3 border rounded-lg">
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-medium">Feira de Alimentação — Curitiba</span>
+              <span class="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs">Agendada</span>
+            </div>
+            <p class="text-sm text-slate-500">Destino: Expo Barigui | 05/11 → 07/11</p>
+            <p class="text-sm text-slate-400">Participantes: 3 colaboradores</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+// ==========================================
+// 🔧 SUPORTE TÉCNICO
+// ==========================================
+function renderSuporteTecnico() {
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">🔧 Suporte Técnico</h2>
+        <p class="text-slate-500">Chamados por área de atendimento</p>
+      </div>
+      <button onclick="modalAbrirChamadoSuporte()" class="bg-red-600 text-white px-4 py-2 rounded-lg">+ Abrir Chamado</button>
+    </div>
+
+    <div class="grid grid-cols-6 gap-3 text-center">
+      <div class="bg-white rounded-xl p-3 border">
+        <p class="text-lg font-bold">2</p>
+        <p class="text-xs text-slate-500">Equip. Alugado</p>
+      </div>
+      <div class="bg-white rounded-xl p-3 border">
+        <p class="text-lg font-bold">1</p>
+        <p class="text-xs text-slate-500">Sup. Lógico</p>
+      </div>
+      <div class="bg-white rounded-xl p-3 border">
+        <p class="text-lg font-bold">0</p>
+        <p class="text-xs text-slate-500">Rede</p>
+      </div>
+      <div class="bg-white rounded-xl p-3 border">
+        <p class="text-lg font-bold">1</p>
+        <p class="text-xs text-slate-500">Site</p>
+      </div>
+      <div class="bg-white rounded-xl p-3 border">
+        <p class="text-lg font-bold">3</p>
+        <p class="text-xs text-slate-500">Caixa/POS</p>
+      </div>
+      <div class="bg-white rounded-xl p-3 border">
+        <p class="text-lg font-bold">1</p>
+        <p class="text-xs text-slate-500">TI</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 border">
+      <h3 class="font-bold text-lg mb-4">Últimos Chamados</h3>
+      <div class="space-y-3">
+        <div class="p-3 border-l-4 border-red-500 bg-red-50 rounded-r-lg">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="font-medium">[CAIXA-042] Impressora não imprime cupom</p>
+              <p class="text-sm text-slate-500">Aberto por: Maria (Caixa) — 23/10 14:05</p>
+            </div>
+            <span class="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">Urgente</span>
+          </div>
+        </div>
+        <div class="p-3 border-l-4 border-amber-500 bg-amber-50 rounded-r-lg">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="font-medium">[SITE-018] Página de pedidos lenta</p>
+              <p class="text-sm text-slate-500">Aberto por: Leandro — 22/10 09:12</p>
+            </div>
+            <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs">Em Análise</span>
+          </div>
+        </div>
+        <div class="p-3 border-l-4 border-green-500 bg-green-50 rounded-r-lg">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="font-medium">[FROTA-007] Freezer móvel manutenção</p>
+              <p class="text-sm text-slate-500">Resolvido — trocado compressor</p>
+            </div>
+            <span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">✅ Resolvido</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+// ==========================================
+// 📜 LGPD / ACEITE
+// ==========================================
+function renderLgpdAceite() {
+  return `
+  <div class="space-y-6">
+    <div class="flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold text-slate-800">📜 LGPD — Termo de Aceite</h2>
+        <p class="text-slate-500">Controle de consentimento — renovação a cada 6 meses</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4">
+      <div class="bg-green-50 rounded-xl p-5 border border-green-200">
+        <p class="text-2xl font-bold text-green-700">42</p>
+        <p class="text-sm text-green-600">Aceites Válidos</p>
+      </div>
+      <div class="bg-amber-50 rounded-xl p-5 border border-amber-200">
+        <p class="text-2xl font-bold text-amber-700">3</p>
+        <p class="text-sm text-amber-600">Vencem em 15 dias</p>
+      </div>
+      <div class="bg-red-50 rounded-xl p-5 border border-red-200">
+        <p class="text-2xl font-bold text-red-700">1</p>
+        <p class="text-sm text-red-600">Vencido — Bloqueado</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl p-6 border">
+      <h3 class="font-bold text-lg mb-4">Status de Aceite — Funcionários</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-50">
+              <th class="text-left p-3">Nome</th>
+              <th class="text-left p-3">Último Aceite</th>
+              <th class="text-left p-3">Vencimento</th>
+              <th class="text-center p-3">Status</th>
+              <th class="text-center p-3">Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="p-3 font-medium">Administrador Geral</td>
+              <td class="p-3">23/04/2026</td>
+              <td class="p-3">23/10/2026</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs">Vence em 0 dias</span></td>
+              <td class="p-3 text-center"><button onclick="reenviarTermoLgpd(1)" class="bg-amber-500 text-white px-2 py-1 rounded text-xs">Reenviar SMS</button></td>
+            </tr>
+            <tr>
+              <td class="p-3 font-medium">Maria Silva</td>
+              <td class="p-3 text-green-600">10/09/2026</td>
+              <td class="p-3 text-green-600">10/03/2027</td>
+              <td class="p-3 text-center"><span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">✅ Válido</span></td>
+              <td class="p-3 text-center text-slate-400">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
+      <h4 class="font-bold text-blue-800 mb-2">ℹ️ Como funciona</h4>
+      <ul class="text-sm text-blue-700 space-y-1">
+        <li>• O termo é enviado por <strong>SMS</strong> → cliente responde "ACEITO"</li>
+        <li>• Válido por <strong>6 meses</strong> contados da data de aceite</li>
+        <li>• Ao vencer, o sistema <strong>bloqueia</strong> cadastro até reaceitar</li>
+        <li>• Ao trocar senha, o sistema exige reconfirmação do termo</li>
+        <li>• Histórico completo de todos os aceites disponível para consulta</li>
+      </ul>
+    </div>
+  </div>
+  `;
+}
+
+// Funções auxiliares (chamadas pelos botões)
+function modalNovoFuncionario() { alert('Abrir formulário — implementar conexão com API'); }
+function modalEditarFuncionario(id) { alert(`Editar funcionário ${id}`); }
+function modalDadosSensiveis(id) { alert(`Acesso aos dados sensíveis — registro no log`); }
+function modalGerarFolha() { alert('Gerar folha de pagamento'); }
+function conferirFolha() { alert('Folha conferida ✅'); }
+function modalCompararFolha() { alert('Comparativo entre competências'); }
+function exportarFolha() { alert('Exportando...'); }
+function modalNovoLead() { alert('Novo lead'); }
+function encaminharPara(vendedorId) { alert(`Lead encaminhado para vendedor ${vendedorId}`); }
+function iniciarAtendimento(leadId) { alert(`Atendimento iniciado — contagem de tempo ativada`); }
+function modalNovoTreinamento() { alert('Novo treinamento'); }
+function modalNovaViagem() { alert('Nova viagem'); }
+function modalAbrirChamadoSuporte() { alert('Abrir chamado de suporte'); }
+function reenviarTermoLgpd(id) { alert(`Termo reenviado por SMS para o usuário ${id}`); }
 
 // ===== INIT =====
 if(currentUser) showView('dashboard');
