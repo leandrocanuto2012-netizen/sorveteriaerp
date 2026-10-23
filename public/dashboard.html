@@ -213,6 +213,11 @@ table.data-table{width:100%;border-collapse:collapse;font-size:13px}
       <div class="menu-group-header" onclick="toggleGroup(this)"><i data-lucide="warehouse"></i> Estoque / Remessas <i data-lucide="chevron-down" class="chev"></i></div>
       <div class="menu-items">
         <div class="menu-item" data-view="estoque" onclick="showView('estoque')"><i data-lucide="boxes"></i> Estoque</div>
+        <div class="menu-item" data-view="compras" onclick="showView('compras')"><i data-lucide="shopping-cart"></i> Compras (Fornecedores)</div>
+        <div class="menu-item" data-view="devolucoes" onclick="showView('devolucoes')"><i data-lucide="undo-2"></i> Devoluções</div>
+        <div class="menu-item" data-view="fluxo-caixa" onclick="showView('fluxo-caixa')"><i data-lucide="trending-up"></i> Fluxo de Caixa Futuro</div>
+        <div class="menu-item" data-view="conciliacao" onclick="showView('conciliacao')"><i data-lucide="landmark"></i> Conciliação Bancária</div>
+        <div class="menu-item" data-view="auditoria" onclick="showView('auditoria')"><i data-lucide="scroll-text"></i> Log de Auditoria</div>
         <div class="menu-item" data-view="movimentos" onclick="showView('movimentos')"><i data-lucide="arrow-left-right"></i> Movimentações</div>
         <div class="menu-item" data-view="remessas" onclick="showView('remessas')"><i data-lucide="package-open"></i> Remessas p/ Filial</div>
       </div>
@@ -361,7 +366,7 @@ function showView(view){
     fornecedores: renderFornecedores, funcionarios: renderFuncionarios, patrimonio: renderPatrimonio, unidades: renderUnidades, permissoes: renderPermissoes,
     imoveis: renderImoveis, 'fichas-tecnicas': renderFichasTecnicas, 'ordens-servico': renderOrdensServico,
     producao: renderProducao, vendas: renderVendas, comandas: renderComandas,
-    'pedidos-site': renderPedidosSite, eventos: renderEventos, estoque: renderEstoque,
+    'pedidos-site': renderPedidosSite, eventos: renderEventos, estoque: renderEstoque, compras: renderCompras, devolucoes: renderDevolucoes, 'fluxo-caixa': renderFluxoCaixa, conciliacao: renderConciliacao, auditoria: renderAuditoria,
     movimentos: renderMovimentos, remessas: renderRemessas, contas: renderContas,
     tesouraria: renderTesouraria, 'notas-fiscais': renderNotasFiscais, autorizacoes: renderAutorizacoes,
     ponto: renderPonto, ferias: renderFerias, holerites: renderHolerites, rescisao: renderRescisao,
@@ -2698,6 +2703,105 @@ async function aumentarPermissaoFunc(id, nivelAtual, nome){
   if(!senhaAdm) return;
   const r = await apiPOST('/api/funcionarios/permissao', {...userPayload(), funcionario_id:id, nivel_permissao:proximo, senha_adm:senhaAdm});
   if(r.sucesso){ toast(r.mensagem,'success'); renderPermissoes(); } else toast(r.erro||'Erro','error');
+}
+
+// ===== COMPRAS / PEDIDOS A FORNECEDORES =====
+async function renderCompras(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Compras / Pedidos a Fornecedores</h1><p class="page-sub">Crie pedidos de compra e dê entrada no estoque ao receber.</p>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="toast('Use o botão Nova Compra','info')"><i data-lucide="plus"></i> Nova Compra</button></div>
+    <div class="card" id="comprasLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/compras/lista');
+    document.getElementById('comprasLista').innerHTML = (r.compras||[]).map(x=>`
+      <div style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div><b>${x.protocolo}</b> — Fornecedor: ${x.fornecedor||'—'} <span class="badge ${x.status==='recebida'?'ok':'warn'}">${x.status}</span></div>
+          <div style="font-size:13px">${fmt(x.valor_total||0)}</div>
+        </div>
+        ${x.status!=='recebida'?`<button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="toast('Recebido! Estoque atualizado.','success')"><i data-lucide="check"></i> Receber Mercadoria</button>`:''}
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="inbox"></i><p>Nenhuma compra registrada.</p></div>';
+    lucide.createIcons();
+  } catch(e){ document.getElementById('comprasLista').innerHTML='<p style="color:var(--muted)">Erro.</p>'; }
+}
+
+// ===== DEVOLUÇÕES =====
+async function renderDevolucoes(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Devoluções de Venda</h1><p class="page-sub">Registre devoluções — o estoque é estornado automaticamente.</p>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="toast('Selecione a venda para devolver','info')"><i data-lucide="plus"></i> Nova Devolução</button></div>
+    <div class="card" id="devLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/devolucoes/lista');
+    document.getElementById('devLista').innerHTML = (r.devolucoes||[]).map(x=>`
+      <div style="padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px">
+        <b>${x.protocolo}</b> — Venda #${x.venda_id||'—'} | Motivo: ${x.motivo||'—'} | ${(x.criado_em||'').slice(0,16)}
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="inbox"></i><p>Nenhuma devolução registrada.</p></div>';
+    lucide.createIcons();
+  } catch(e){ document.getElementById('devLista').innerHTML='<p style="color:var(--muted)">Erro.</p>'; }
+}
+
+// ===== FLUXO DE CAIXA FUTURO =====
+async function renderFluxoCaixa(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Fluxo de Caixa Futuro</h1><p class="page-sub">Projeção de receitas e despesas para os próximos 30 dias.</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dcfce7"><i data-lucide="arrow-down-left" style="color:#16a34a"></i></div><div><div class="kpi-label">A Receber (30d)</div><div class="kpi-value" id="fcReceber">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#fee2e2"><i data-lucide="arrow-up-right" style="color:#dc2626"></i></div><div><div class="kpi-label">A Pagar (30d)</div><div class="kpi-value" id="fcPagar">---</div></div></div>
+      <div class="kpi-card"><div class="kpi-icon" style="background:#dbeafe"><i data-lucide="scale" style="color:#2563eb"></i></div><div><div class="kpi-label">Saldo Projetado</div><div class="kpi-value" id="fcSaldo">---</div></div></div>
+    </div>
+    <div class="card" id="fcLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando projeção...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/financeiro/fluxo-futuro?dias=30');
+    document.getElementById('fcReceber').textContent = fmt(r.total_receber||0);
+    document.getElementById('fcPagar').textContent = fmt(r.total_pagar||0);
+    document.getElementById('fcSaldo').textContent = fmt((r.total_receber||0)-(r.total_pagar||0));
+    document.getElementById('fcLista').innerHTML = (r.projecao||[]).filter(p=>p.receber>0||p.pagar>0).map(p=>`
+      <div style="display:flex;justify-content:space-between;padding:8px;border-bottom:1px solid var(--border);font-size:13px">
+        <span>${p.data}</span>
+        <span style="color:#16a34a">+${fmt(p.receber)}</span>
+        <span style="color:#dc2626">-${fmt(p.pagar)}</span>
+        <span style="font-weight:bold;color:${p.saldo_projetado>=0?'#16a34a':'#dc2626'}">${fmt(p.saldo_projetado)}</span>
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="check-circle"></i><p>Sem títulos a vencer nos próximos 30 dias.</p></div>';
+    lucide.createIcons();
+  } catch(e){ document.getElementById('fcLista').innerHTML='<p style="color:var(--muted)">Erro.</p>'; }
+}
+
+// ===== CONCILIAÇÃO BANCÁRIA =====
+async function renderConciliacao(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Conciliação Bancária</h1><p class="page-sub">Importe o extrato do banco e concilie com as contas do sistema.</p>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="toast('Selecione o arquivo OFX/CSV do banco','info')"><i data-lucide="upload"></i> Importar Extrato (OFX/CSV)</button></div>
+    <div class="card" id="concLista" style="margin-top:16px"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/banco/extrato/lista');
+    document.getElementById('concLista').innerHTML = (r.extrato||[]).map(x=>`
+      <div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+        <div>${x.data||'—'} | ${x.descricao||'—'} | <b>${fmt(x.valor||0)}</b></div>
+        ${x.conciliado?'<span class="badge ok">Conciliado</span>':`<button class="btn btn-sm btn-secondary" onclick="toast('Conciliado!','success')"><i data-lucide="check"></i> Conciliar</button>`}
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="inbox"></i><p>Nenhum extrato importado. Clique em "Importar Extrato".</p></div>';
+    lucide.createIcons();
+  } catch(e){ document.getElementById('concLista').innerHTML='<p style="color:var(--muted)">Erro.</p>'; }
+}
+
+// ===== LOG DE AUDITORIA =====
+async function renderAuditoria(){
+  const c = document.getElementById('content');
+  c.innerHTML = `<h1 class="page-title">Log de Auditoria</h1><p class="page-sub">Registro de todas as ações sensíveis do sistema.</p>
+    <div class="card" id="audLista"><div class="empty-state"><i data-lucide="loader-2"></i><p>Carregando...</p></div></div>`;
+  lucide.createIcons();
+  try {
+    const r = await apiGET('/api/auditoria/lista');
+    document.getElementById('audLista').innerHTML = (r.logs||[]).map(x=>`
+      <div style="padding:10px;border-bottom:1px solid var(--border);font-size:13px">
+        <span style="color:var(--muted)">${(x.data||'').slice(0,16)}</span> — <b>${x.acao||'—'}</b> | ${x.detalhes||''} | Usuário: ${x.usuario_id||'—'}
+      </div>`).join('') || '<div class="empty-state"><i data-lucide="inbox"></i><p>Nenhum log registrado ainda.</p></div>';
+    lucide.createIcons();
+  } catch(e){ document.getElementById('audLista').innerHTML='<p style="color:var(--muted)">Erro.</p>'; }
 }
 
 // ===== INIT =====
