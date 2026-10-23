@@ -1497,4 +1497,517 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', sistema: DB.contro
     console.log('   Site:      http://localhost:' + PORT + '/site.html');
     console.log('   Bot webhook: POST /api/bot/webhook');
   });
+  // ==========================================
+// 👤 FUNCIONÁRIOS COMPLETOS
+// ==========================================
+
+// Listar todos os funcionários com dados completos
+app.get('/api/funcionarios/completo', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('funcionarios')
+      .select(`
+        id, nome, usuario, email, matricula, cargo,
+        nivel_permissao, ativo, status, foto_url,
+        unidade_tipo, data_admissao, telefone
+      `)
+      .order('nome');
+
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Editar funcionário
+app.put('/api/funcionarios/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const dados = req.body;
+    const editado_por = req.headers['matricula'] || 'sistema';
+
+    const { data, error } = await supabase
+      .from('funcionarios')
+      .update({
+        ...dados,
+        permissao_alterada_por: editado_por,
+        permissao_alterada_em: new Date()
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Dados sensíveis (apenas nível 5 e 6)
+app.get('/api/funcionarios/:id/sensiveis', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuarioNivel = parseInt(req.headers['nivel-permissao'] || 0);
+    
+    if (usuarioNivel < 5) {
+      return res.status(403).json({ 
+        sucesso: false, 
+        erro: 'Acesso restrito a Gerente e Administrador' 
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('funcionarios')
+      .select('dados_sensiveis')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data.dados_sensiveis });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Trocar senha com validação de histórico
+app.put('/api/funcionarios/:id/trocar-senha', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nova_senha } = req.body;
+
+    // Busca usuário atual e últimas senhas
+    const { data: func, error: eBusca } = await supabase
+      .from('funcionarios')
+      .select('senha_hash, ultimas_senhas')
+      .eq('id', id)
+      .single();
+
+    if (eBusca) throw eBusca;
+
+    // Verifica se nova senha é igual às 2 últimas
+    if (func.ultimas_senhas?.includes(nova_senha)) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: 'A nova senha deve ser diferente das 2 últimas'
+      });
+    }
+
+    // Atualiza guardando histórico
+    const ultimas = [...(func.ultimas_senhas || []), func.senha_hash].slice(-2);
+
+    const { error: eAtualiza } = await supabase
+      .from('funcionarios')
+      .update({
+        senha_hash: nova_senha,
+        ultimas_senhas: ultimas
+      })
+      .eq('id', id);
+
+    if (eAtualiza) throw eAtualiza;
+    res.json({ sucesso: true, mensagem: 'Senha alterada com sucesso' });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// ==========================================
+// 💰 FOLHA DE PAGAMENTO
+// ==========================================
+
+// Gerar folha
+app.post('/api/folha/gerar', async (req, res) => {
+  try {
+    const { competencia, funcionarios } = req.body;
+    const resultados = [];
+
+    for (const func of funcionarios) {
+      // Cálculos automáticos
+      const inss = Number((func.salario_base * 0.11).toFixed(2));
+      const fgts = Number((func.salario_base * 0.08).toFixed(2));
+      
+      // Cálculo IRRF (simplificado — alíquota padrão)
+      let irrf = 0;
+      if (func.salario_base > 2826.66) {
+        irrf = Number(((func.salario_base - 1903.98) * 0.15).toFixed(2));
+      }
+
+      const totalProventos = Number((
+        func.salario_base + 
+        (func.horas_extras || 0) + 
+        (func.adicional_noturno || 0)
+      ).toFixed(2));
+
+      const totalDescontos = Number((
+        inss + irrf + fgts + 
+        (func.vr || 0) + (func.va || 0) + 
+        (func.combustivel || 0) + (func.passagens || 0)
+      ).toFixed(2));
+
+      const liquido = Number((totalProventos - totalDescontos).toFixed(2));
+
+      const { data, error } = await supabase
+        .from('folha_pagamento')
+        .insert({
+          funcionario_id: func.id,
+          competencia,
+          salario_base: func.salario_base,
+          horas_extras: func.horas_extras || 0,
+          adicional_noturno: func.adicional_noturno || 0,
+          total_proventos: totalProventos,
+          inss, irrf, fgts,
+          vr: func.vr || 0,
+          va: func.va || 0,
+          combustivel: func.combustivel || 0,
+          passagens: func.passagens || 0,
+          total_descontos: totalDescontos,
+          liquido_receber: liquido,
+          status: 'gerada'
+        })
+        .select();
+
+      if (error) throw error;
+      resultados.push(data[0]);
+    }
+
+    res.json({ sucesso: true, dados: resultados });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Listar folhas
+app.get('/api/folha', async (req, res) => {
+  try {
+    const { competencia } = req.query;
+    let consulta = supabase.from('folha_pagamento').select(`
+      *,
+      funcionarios (nome, matricula)
+    `);
+    
+    if (competencia) consulta = consulta.eq('competencia', competencia);
+    
+    const { data, error } = await consulta.order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Conferir folha
+app.put('/api/folha/:id/conferir', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { conferente_matricula } = req.body;
+
+    const { data, error } = await supabase
+      .from('folha_pagamento')
+      .update({
+        status: 'conferida',
+        conferida_por_id: conferente_matricula,
+        conferida_em: new Date()
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Descontos de parceiros
+app.get('/api/descontos-parceiros', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('descontos_parceiros')
+      .select('*, funcionarios(nome, matricula)')
+      .eq('ativo', true);
+    
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// ==========================================
+// 📞 CRM / LEADS
+// ==========================================
+
+// Listar leads com status
+app.get('/api/leads', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('leads')
+      .select(`
+        *,
+        funcionarios:vendedor_id (nome, matricula)
+      `)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Marca expirados
+    const agora = new Date();
+    const comStatus = data.map(lead => ({
+      ...lead,
+      esta_expirado: lead.expira_em ? new Date(lead.expira_em) < agora : false
+    }));
+
+    res.json({ sucesso: true, dados: comStatus });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Novo lead
+app.post('/api/leads', async (req, res) => {
+  try {
+    const { nome, telefone, email, origem, vendedor_id } = req.body;
+    
+    // Expira em 24h por padrão
+    const expira_em = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const { data, error } = await supabase
+      .from('leads')
+      .insert({
+        nome, telefone, email, origem, vendedor_id,
+        status: 'novo',
+        expira_em
+      })
+      .select();
+
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Registrar contato e controlar tempo
+app.post('/api/leads/:id/contato', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { funcionario_id, tipo, resultado, gerou_fruto, anotacoes, duracao_segundos } = req.body;
+
+    const { error } = await supabase
+      .from('leads_contatos')
+      .insert({
+        lead_id: id,
+        funcionario_id,
+        tipo,
+        resultado,
+        gerou_fruto,
+        anotacoes,
+        duracao_segundos
+      });
+
+    if (error) throw error;
+
+    // Atualiza status do lead
+    await supabase.from('leads').update({ status: 'em_atendimento' }).eq('id', id);
+
+    res.json({ sucesso: true, mensagem: 'Contato registrado' });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Redistribuir lead expirado
+app.put('/api/leads/:id/redistribuir', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { novo_vendedor_id } = req.body;
+
+    const { error } = await supabase
+      .from('leads')
+      .update({
+        vendedor_id: novo_vendedor_id,
+        status: 'redistribuido'
+      })
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ sucesso: true, mensagem: 'Redistribuído com sucesso' });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// ==========================================
+// 📚 TREINAMENTOS & VIAGENS
+// ==========================================
+
+app.get('/api/treinamentos', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('treinamentos').select('*').order('data_inicio', { ascending: false });
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+app.post('/api/treinamentos', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('treinamentos').insert(req.body).select();
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+app.get('/api/viagens', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('viagens')
+      .select('*, funcionarios(nome, matricula)')
+      .order('data_saida', { ascending: false });
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+app.post('/api/viagens', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('viagens').insert(req.body).select();
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// ==========================================
+// 🔧 SUPORTE TÉCNICO
+// ==========================================
+
+app.get('/api/suporte', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('suporte_chamados')
+      .select(`
+        *,
+        solicitante: solicitante_id (nome),
+        responsavel: responsavel_id (nome)
+      `)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+app.post('/api/suporte', async (req, res) => {
+  try {
+    const protocolo = `SUP-${Date.now().toString().slice(-8)}`;
+    const { data, error } = await supabase
+      .from('suporte_chamados')
+      .insert({ ...req.body, protocolo })
+      .select();
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+app.put('/api/suporte/:id/fechar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { solucao_aplicada } = req.body;
+
+    const { data, error } = await supabase
+      .from('suporte_chamados')
+      .update({
+        status: 'resolvido',
+        solucao_aplicada,
+        data_resolucao: new Date()
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    res.json({ sucesso: true, dados: data[0] });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// ==========================================
+// 📜 LGPD / ACEITE
+// ==========================================
+
+// Registrar aceite
+app.post('/api/lgpd/aceitar', async (req, res) => {
+  try {
+    const { entidade_tipo, entidade_id, canal, ip } = req.body;
+    
+    // Vence em 6 meses
+    const proximo_vencimento = new Date();
+    proximo_vencimento.setMonth(proximo_vencimento.getMonth() + 6);
+
+    const { error } = await supabase
+      .from('lgpd_termos')
+      .insert({
+        entidade_tipo,
+        entidade_id,
+        aceitou: true,
+        canal,
+        ip_aceite: ip,
+        proximo_vencimento
+      });
+
+    if (error) throw error;
+
+    // Atualiza funcionário
+    if (entidade_tipo === 'funcionario') {
+      await supabase.from('funcionarios').update({
+        ultimo_aceite_lgpd: new Date(),
+        proximo_vencimento_lgpd: proximo_vencimento
+      }).eq('id', entidade_id);
+    }
+
+    res.json({ sucesso: true, proximo_vencimento });
+  } catch (erro) {
+    res.status(400).json({ sucesso: false, erro: erro.message });
+  }
+});
+
+// Verificar se precisa aceitar
+app.get('/api/lgpd/verificar/:tipo/:id', async (req, res) => {
+  try {
+    const { tipo, id } = req.params;
+    const hoje = new Date();
+
+    const { data, error } = await supabase
+      .from('lgpd_termos')
+      .select('proximo_vencimento, aceitou, data_aceite')
+      .eq('entidade_tipo', tipo)
+      .eq('entidade_id', id)
+      .order('data_aceite', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) throw error;
+
+    const precisa_aceitar = !data?.aceitou || new Date(data.proximo_vencimento) < hoje;
+
+    res.json({ 
+      sucesso: true, 
+      precisa_aceitar,
+      proximo_vencimento: data?.proximo_vencimento
+    });
+  } catch (erro) {
+    // Sem registro → precisa aceitar
+    res.json({ sucesso: true, precisa_aceitar: true });
+  }
+});
 })();
